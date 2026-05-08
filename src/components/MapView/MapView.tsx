@@ -12,6 +12,7 @@ import {
   pickTile,
 } from "@/lib/iso";
 import { drawWoodFrame } from "@/lib/wood";
+import { drawAnimatedMotifs } from "@/lib/motifs";
 import { drawBiohazard, drawCapitalStar, drawResearcher, drawSoldier } from "@/lib/sprites";
 import { ZOOM_MAX, ZOOM_MIN, clampView, type View } from "@/lib/view";
 
@@ -61,13 +62,18 @@ function buildOutlines(
       const corners = diamondCorners(iso, x, y, 0);
       const cid = t.countryId;
       const cp = ensure(cid);
-      // Edge → neighbour pairs. Iso diamond: top→right (NE),
-      // right→bottom (SE), bottom→left (SW), left→top (NW).
+      // In iso, (x+1, y) lies SE of (x, y), (x, y+1) lies SW, (x-1, y) lies
+      // NW, (x, y-1) lies NE. Each grid neighbour shares the diamond edge
+      // facing its direction:
+      //   SE neighbour → right→bottom edge (the south-east face)
+      //   SW neighbour → bottom→left
+      //   NW neighbour → left→top
+      //   NE neighbour → top→right
       const edges: Array<[number, number, { x: number; y: number }, { x: number; y: number }]> = [
-        [x + 1, y, corners.top, corners.right], // NE → east neighbour
-        [x, y + 1, corners.right, corners.bottom], // SE → south neighbour
-        [x - 1, y, corners.bottom, corners.left], // SW → west neighbour
-        [x, y - 1, corners.left, corners.top], // NW → north neighbour
+        [x + 1, y, corners.right, corners.bottom],
+        [x, y + 1, corners.bottom, corners.left],
+        [x - 1, y, corners.left, corners.top],
+        [x, y - 1, corners.top, corners.right],
       ];
       for (const [nx, ny, a, b] of edges) {
         const inb = nx >= 0 && nx < iso.width && ny >= 0 && ny < iso.height;
@@ -174,6 +180,10 @@ export function MapView({
       const base = baseLayerRef.current;
       if (base) ctx.drawImage(base, 0, 0);
 
+      // Critters & water — drifting waves on ocean, fish on coast,
+      // crabs on beach, sheep on grassland, seagulls overhead.
+      drawAnimatedMotifs(ctx, map, iso, tilesByXY, now);
+
       // Country borders coloured by owner.
       ctx.save();
       ctx.lineCap = "round";
@@ -253,7 +263,7 @@ export function MapView({
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [iso, map, outlines, stateByCountry, playerColorById, selectedCountryId]);
+  }, [iso, map, tilesByXY, outlines, stateByCountry, playerColorById, selectedCountryId]);
 
   // Hit-testing — point in canvas-local pixels → tile.
   function pointToTile(clientX: number, clientY: number): Tile | null {

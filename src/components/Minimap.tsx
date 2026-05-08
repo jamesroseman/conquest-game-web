@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ConquestMap, CountryState, Player } from "@/api/types";
 import { PAL } from "@/lib/biomes";
 import { makeIso } from "@/lib/iso";
-import { clampView, type View } from "@/lib/view";
+import { ZOOM_MAX, ZOOM_MIN, clampView, type View } from "@/lib/view";
 
 interface Props {
   map: ConquestMap;
@@ -15,10 +15,10 @@ interface Props {
 
 const MINI_SIZE = 220;
 
-// Top-down minimap. Square 220×220 canvas. Internal zoom (the +/- in the
-// header) zooms the MINIMAP itself, not the main map — useful for inspecting
-// country borders on big maps. The amber rectangle still shows the visible
-// portion of the main canvas; clicking the minimap recenters the main map.
+// Top-down minimap. Square 220×220. Click recenters the main map; drag pans
+// it continuously; the +/- buttons in the header zoom the MAIN map (the
+// minimap itself always shows the whole world). The amber rectangle marks
+// the visible portion of the main canvas.
 export function Minimap({
   map,
   countryStates,
@@ -28,15 +28,7 @@ export function Minimap({
   viewportSize,
 }: Props): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ moved: boolean; isPan: boolean; sx: number; sy: number; cx: number; cy: number } | null>(null);
-  const [miniZoom, setMiniZoom] = useState(1);
-  const [miniCenter, setMiniCenter] = useState<{ x: number; y: number } | null>(null);
-
-  // Snap the mini-pan back to centre when the user zooms back out.
-  useEffect(() => {
-    if (miniZoom <= 1.0001) setMiniCenter(null);
-  }, [miniZoom]);
-
+  const dragRef = useRef<{ moved: boolean } | null>(null);
   const iso = useMemo(() => makeIso(map.width, map.height), [map.width, map.height]);
 
   const playerColorById = useMemo(() => {
@@ -51,7 +43,6 @@ export function Minimap({
     return m;
   }, [countryStates]);
 
-  // 2D grid for fast neighbour lookups.
   const tileGrid = useMemo(() => {
     const g: { biome: string; countryId: string | null; terrain: string }[][] = [];
     for (let x = 0; x < map.width; x++)
@@ -72,27 +63,16 @@ export function Minimap({
     ctx.fillStyle = "#02040a";
     ctx.fillRect(0, 0, MINI_SIZE, MINI_SIZE);
 
-    // Compute the visible window in tile coords given miniZoom + miniCenter.
-    const span = Math.max(map.width, map.height) / miniZoom;
-    const cx = miniCenter ? miniCenter.x : map.width / 2;
-    const cy = miniCenter ? miniCenter.y : map.height / 2;
-    const tlX = cx - span / 2;
-    const tlY = cy - span / 2;
-    const tile = MINI_SIZE / span;
-
-    const xToPx = (x: number): number => Math.floor((x - tlX) * tile);
-    const yToPx = (y: number): number => Math.floor((y - tlY) * tile);
+    const tile = MINI_SIZE / Math.max(map.width, map.height);
+    const offX = (MINI_SIZE - map.width * tile) / 2;
+    const offY = (MINI_SIZE - map.height * tile) / 2;
+    const xToPx = (x: number): number => Math.floor(offX + x * tile);
+    const yToPx = (y: number): number => Math.floor(offY + y * tile);
     const pw = Math.max(1, Math.ceil(tile));
     const ph = pw;
 
-    const x0 = Math.max(0, Math.floor(tlX));
-    const y0 = Math.max(0, Math.floor(tlY));
-    const x1 = Math.min(map.width, Math.ceil(tlX + span));
-    const y1 = Math.min(map.height, Math.ceil(tlY + span));
-
-    // Tiles.
-    for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) {
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
         const t = tileGrid[x][y];
         const pal = PAL[t.biome as keyof typeof PAL] ?? PAL.ocean;
         ctx.fillStyle = pal.top;
@@ -100,9 +80,8 @@ export function Minimap({
       }
     }
 
-    // Country borders coloured by owner.
-    for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) {
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
         const t = tileGrid[x][y];
         const cid = t.countryId;
         if (!cid) continue;
@@ -120,10 +99,9 @@ export function Minimap({
       }
     }
 
-    // Coastlines.
     ctx.fillStyle = "rgba(91,227,255,0.65)";
-    for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) {
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
         const t = tileGrid[x][y];
         if (t.terrain === "ocean") continue;
         const px = xToPx(x);
@@ -137,11 +115,8 @@ export function Minimap({
       }
     }
 
-    // Visible-viewport rectangle overlay. Translate the main view's
-    // canvas-pixel rect into minimap-pixel coords. The main view is iso, so
-    // we approximate by mapping the visible canvas area's bounding box to
-    // tile-space proportionally.
     if (viewportSize.w > 0 && viewportSize.h > 0 && view.zoom > 0) {
+      // Approximate the visible canvas-rect → tile-space rectangle.
       const wxStart = -view.panX / view.zoom;
       const wyStart = -view.panY / view.zoom;
       const wxEnd = wxStart + viewportSize.w / view.zoom;
@@ -150,7 +125,6 @@ export function Minimap({
       const fxEnd = wxEnd / iso.canvasW;
       const fyStart = wyStart / iso.canvasH;
       const fyEnd = wyEnd / iso.canvasH;
-      // Map fractional canvas coords → tile-space (whole map: 0..width).
       const tileXStart = fxStart * map.width;
       const tileXEnd = fxEnd * map.width;
       const tileYStart = fyStart * map.height;
@@ -171,86 +145,69 @@ export function Minimap({
       ctx.strokeRect(cx2, cy2, cw, ch);
       ctx.restore();
     }
-  }, [
-    map,
-    tileGrid,
-    ownerByCountry,
-    playerColorById,
-    view,
-    viewportSize,
-    iso.canvasW,
-    iso.canvasH,
-    miniZoom,
-    miniCenter,
-  ]);
+  }, [map, tileGrid, ownerByCountry, playerColorById, view, viewportSize, iso.canvasW, iso.canvasH]);
 
-  // Click recenters the main map on the clicked tile-coord.
   function jumpMain(clientX: number, clientY: number): void {
     const c = canvasRef.current;
     if (!c) return;
     const r = c.getBoundingClientRect();
+    const tile = MINI_SIZE / Math.max(map.width, map.height);
+    const offX = (MINI_SIZE - map.width * tile) / 2;
+    const offY = (MINI_SIZE - map.height * tile) / 2;
     const fx = (clientX - r.left) / r.width;
     const fy = (clientY - r.top) / r.height;
-    const span = Math.max(map.width, map.height) / miniZoom;
-    const cx = miniCenter ? miniCenter.x : map.width / 2;
-    const cy = miniCenter ? miniCenter.y : map.height / 2;
-    const tileX = cx - span / 2 + fx * span;
-    const tileY = cy - span / 2 + fy * span;
-    const fracX = tileX / map.width;
-    const fracY = tileY / map.height;
+    const tileX = ((fx * MINI_SIZE) - offX) / tile;
+    const tileY = ((fy * MINI_SIZE) - offY) / tile;
+    const fracX = Math.max(0, Math.min(1, tileX / map.width));
+    const fracY = Math.max(0, Math.min(1, tileY / map.height));
     const targetCanvasX = fracX * iso.canvasW;
     const targetCanvasY = fracY * iso.canvasH;
-    setView((v) => {
-      const next = {
-        panX: viewportSize.w / 2 - targetCanvasX * v.zoom,
-        panY: viewportSize.h / 2 - targetCanvasY * v.zoom,
-        zoom: v.zoom,
-      };
-      return clampView(next, viewportSize.w, viewportSize.h, iso.canvasW, iso.canvasH);
-    });
+    setView((v) =>
+      clampView(
+        {
+          panX: viewportSize.w / 2 - targetCanvasX * v.zoom,
+          panY: viewportSize.h / 2 - targetCanvasY * v.zoom,
+          zoom: v.zoom,
+        },
+        viewportSize.w,
+        viewportSize.h,
+        iso.canvasW,
+        iso.canvasH
+      )
+    );
   }
 
   function onMouseDown(e: React.MouseEvent): void {
     if (e.button !== 0) return;
-    const isPan = miniZoom > 1.0001;
-    dragRef.current = {
-      moved: false,
-      isPan,
-      sx: e.clientX,
-      sy: e.clientY,
-      cx: miniCenter?.x ?? map.width / 2,
-      cy: miniCenter?.y ?? map.height / 2,
-    };
-    if (!isPan) jumpMain(e.clientX, e.clientY);
+    dragRef.current = { moved: false };
+    jumpMain(e.clientX, e.clientY);
   }
   function onMouseMove(e: React.MouseEvent): void {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const dx = e.clientX - drag.sx;
-    const dy = e.clientY - drag.sy;
-    if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true;
-    if (drag.isPan) {
-      // When zoomed in, mouse-drag pans the minimap viewport in tile-space.
-      const span = Math.max(map.width, map.height) / miniZoom;
-      const tilePerPx = span / MINI_SIZE;
-      const halfSpan = span / 2;
-      let nx = drag.cx - dx * tilePerPx;
-      let ny = drag.cy - dy * tilePerPx;
-      nx = Math.max(halfSpan, Math.min(map.width - halfSpan, nx));
-      ny = Math.max(halfSpan, Math.min(map.height - halfSpan, ny));
-      setMiniCenter({ x: nx, y: ny });
-    } else {
-      // Click-and-drag at base zoom continuously recenters the main view.
-      jumpMain(e.clientX, e.clientY);
-    }
+    if (!dragRef.current) return;
+    dragRef.current.moved = true;
+    jumpMain(e.clientX, e.clientY);
   }
   function onMouseUp(): void {
     dragRef.current = null;
   }
 
-  function bumpMiniZoom(direction: 1 | -1): void {
-    const factor = direction === 1 ? 1.4 : 1 / 1.4;
-    setMiniZoom((z) => Math.max(1, Math.min(4, +(z * factor).toFixed(2))));
+  function bumpMainZoom(direction: 1 | -1): void {
+    const factor = direction === 1 ? 1.25 : 1 / 1.25;
+    setView((v) => {
+      const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, v.zoom * factor));
+      // Zoom around the centre of the visible viewport.
+      const cx = viewportSize.w / 2;
+      const cy = viewportSize.h / 2;
+      const wx = (cx - v.panX) / v.zoom;
+      const wy = (cy - v.panY) / v.zoom;
+      return clampView(
+        { panX: cx - wx * z, panY: cy - wy * z, zoom: z },
+        viewportSize.w,
+        viewportSize.h,
+        iso.canvasW,
+        iso.canvasH
+      );
+    });
   }
 
   return (
@@ -258,9 +215,9 @@ export function Minimap({
       <div className="hd">
         world overview
         <span className="right">
-          <button type="button" className="mzb" onClick={() => bumpMiniZoom(-1)}>−</button>
-          <span className="mzl">{Math.round(miniZoom * 100)}%</span>
-          <button type="button" className="mzb" onClick={() => bumpMiniZoom(1)}>+</button>
+          <button type="button" className="mzb" onClick={() => bumpMainZoom(-1)}>−</button>
+          <span className="mzl">{Math.round(view.zoom * 100)}%</span>
+          <button type="button" className="mzb" onClick={() => bumpMainZoom(1)}>+</button>
         </span>
       </div>
       <canvas
@@ -268,7 +225,6 @@ export function Minimap({
         width={MINI_SIZE}
         height={MINI_SIZE}
         className="mini-canvas"
-        style={{ cursor: miniZoom > 1.0001 ? "grab" : "crosshair" }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
