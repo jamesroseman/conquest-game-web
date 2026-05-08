@@ -50,83 +50,70 @@ export function CreateGameRoute(): JSX.Element {
   }
 
   return (
-    <div className="mx-auto max-w-lg px-6 py-8">
-      <h2 className="mb-6 text-xl font-semibold text-slate-100">Create game</h2>
-      <form onSubmit={onSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-slate-300" htmlFor="name">
-            Name (optional)
-          </label>
-          <input
-            id="name"
-            type="text"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-300" htmlFor="maxPlayers">
-            Max players
-          </label>
-          <select
-            id="maxPlayers"
-            value={form.maxPlayers}
-            onChange={(e) => setForm({ ...form, maxPlayers: Number(e.target.value) })}
-            className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
-          >
-            {[2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            id="isPublic"
-            type="checkbox"
-            checked={form.isPublic}
-            onChange={(e) => setForm({ ...form, isPublic: e.target.checked })}
-            className="h-4 w-4"
-          />
-          <label htmlFor="isPublic" className="text-sm text-slate-300">
-            Public — listed on the lobby page
-          </label>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-300" htmlFor="seed">
-            Map seed (optional integer)
-          </label>
-          <input
-            id="seed"
-            type="text"
-            value={form.seed}
-            onChange={(e) => setForm({ ...form, seed: e.target.value })}
-            className="mt-1 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 focus:border-indigo-500 focus:outline-none"
-            placeholder="42"
-          />
-        </div>
+    <div className="page-shell">
+      <div style={{ maxWidth: 480, margin: "0 auto" }}>
+        <div className="panel">
+          <div className="hd">new game</div>
+          <div className="bd">
+            <form onSubmit={onSubmit} className="form-grid">
+              <div>
+                <label className="label" htmlFor="name">Name</label>
+                <input
+                  id="name"
+                  type="text"
+                  className="input"
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  placeholder="optional · server picks one if blank"
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="maxPlayers">Max players</label>
+                <select
+                  id="maxPlayers"
+                  className="select"
+                  value={form.maxPlayers}
+                  onChange={(e) => setForm({ ...form, maxPlayers: Number(e.target.value) })}
+                >
+                  {[2, 3, 4, 5, 6].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.isPublic}
+                  onChange={(e) => setForm({ ...form, isPublic: e.target.checked })}
+                />
+                Public — listed on the lobby page
+              </label>
+              <div>
+                <label className="label" htmlFor="seed">Map seed</label>
+                <input
+                  id="seed"
+                  type="text"
+                  className="input"
+                  value={form.seed}
+                  onChange={(e) => setForm({ ...form, seed: e.target.value })}
+                  placeholder="optional integer"
+                />
+              </div>
 
-        {error && <p className="text-sm text-rose-400">{error}</p>}
+              {error && <div className="alert">{error}</div>}
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:bg-indigo-900"
-          >
-            {loading ? "Creating…" : "Create game"}
-          </button>
+              <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button type="button" className="btn btn-ghost" onClick={() => navigate(-1)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn" disabled={loading} style={{ flex: 1 }}>
+                  {loading ? "Forging…" : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

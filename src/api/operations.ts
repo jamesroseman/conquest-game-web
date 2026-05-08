@@ -96,6 +96,7 @@ const MAP_FIELDS = gql`
       countryIds
       tileCount
       bonusArmies
+      climate
     }
     paths {
       pathId
@@ -108,6 +109,7 @@ const MAP_FIELDS = gql`
       y
       terrain
       countryId
+      biome
     }
   }
 `;

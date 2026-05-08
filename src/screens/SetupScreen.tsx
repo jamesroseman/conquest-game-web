@@ -9,6 +9,7 @@ import type { GameStateView, StateMutationResult } from "@/api/types";
 import { MapView } from "@/components/MapView/MapView";
 import { PlayerList } from "@/components/PlayerList";
 import { useAuth } from "@/auth/useAuth";
+import { CountryInspector } from "@/components/CountryInspector";
 
 interface Props {
   state: GameStateView;
@@ -18,6 +19,7 @@ export function SetupScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const { game, players, countryStates, map } = state;
   const [error, setError] = useState<string | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
 
   const myPlayer = players.find((p) => p.userId === user?.userId) ?? null;
   const activeSeat = game.setup.activeSeatOrder;
@@ -37,7 +39,7 @@ export function SetupScreen({ state }: Props): JSX.Element {
     { gameId: string; countryId: string }
   >(PLACE_CAPITAL_MUTATION);
 
-  function handleResult(result: StateMutationResult | undefined): void {
+  function handle(result: StateMutationResult | undefined): void {
     if (!result) return;
     if (result.__typename === "GameError") setError(result.message);
     else setError(null);
@@ -48,17 +50,17 @@ export function SetupScreen({ state }: Props): JSX.Element {
     switch (game.setup.phase) {
       case "troops": {
         const r = await placeTroop({ variables: { gameId: game.gameId, countryId } });
-        handleResult(r.data?.placeSetupTroop);
+        handle(r.data?.placeSetupTroop);
         break;
       }
       case "researchers": {
         const r = await placeResearcher({ variables: { gameId: game.gameId, countryId } });
-        handleResult(r.data?.placeResearcher);
+        handle(r.data?.placeResearcher);
         break;
       }
       case "capitals": {
         const r = await placeCapital({ variables: { gameId: game.gameId, countryId } });
-        handleResult(r.data?.placeCapital);
+        handle(r.data?.placeCapital);
         break;
       }
       default:
@@ -69,48 +71,64 @@ export function SetupScreen({ state }: Props): JSX.Element {
   const phaseLabel = (() => {
     switch (game.setup.phase) {
       case "troops":
-        return `Place a troop (${myPlayer?.troopsRemainingToPlace ?? 0} left for you)`;
+        return `Place a troop · ${myPlayer?.troopsRemainingToPlace ?? 0} left for you`;
       case "researchers":
         return "Place your researcher on a country you own";
       case "capitals":
         return "Place your capital on a country you own";
       case "disease_seed":
-        return "Server is seeding disease — auto-progresses";
+        return "Server is seeding disease — auto-progressing";
       default:
         return game.setup.phase;
     }
   })();
 
   return (
-    <div className="flex h-[calc(100vh-3.25rem)] flex-col lg:flex-row">
-      <aside className="w-full border-b border-slate-800 bg-slate-900 p-4 lg:w-80 lg:border-b-0 lg:border-r">
-        <h2 className="text-lg font-semibold text-slate-100">{game.name}</h2>
-        <p className="mb-3 text-xs uppercase tracking-wide text-slate-400">Setup · {game.setup.phase}</p>
-        <div
-          className={`mb-4 rounded-md border px-3 py-2 text-sm ${
-            isMyTurn ? "border-amber-400 bg-amber-400/10 text-amber-200" : "border-slate-700 bg-slate-950 text-slate-300"
-          }`}
-        >
-          {isMyTurn ? phaseLabel : `Waiting for seat ${activeSeat + 1}…`}
-        </div>
-        <PlayerList players={players} activePlayerId={activePlayer?.playerId ?? null} ownerUserId={game.ownerUserId} />
-        {error && <p className="mt-3 text-sm text-rose-400">{error}</p>}
-      </aside>
-
-      <section className="relative flex-1 overflow-hidden bg-slate-950">
+    <div className="page-game">
+      <div style={{ position: "absolute", inset: 0 }}>
         {map ? (
           <MapView
             map={map}
             countryStates={countryStates}
             players={players}
             onCountryClick={onCountryClick}
+            onCountryHover={setHover}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-slate-400">
+          <div className="bd dim" style={{ padding: 80, textAlign: "center" }}>
             Map not ready yet…
           </div>
         )}
-      </section>
+      </div>
+
+      <div className="panel panel-fixed" style={{ top: 60, left: 14, minWidth: 240 }}>
+        <div className="hd">
+          setup · {game.setup.phase}
+        </div>
+        <div className="bd">
+          <div
+            style={{
+              padding: "6px 8px",
+              border: `1px dashed ${isMyTurn ? "rgba(255,180,84,0.6)" : "rgba(91,227,255,0.18)"}`,
+              color: isMyTurn ? "var(--warn)" : "var(--ink-dim)",
+              marginBottom: 8,
+              fontSize: 11,
+            }}
+          >
+            {isMyTurn ? phaseLabel : `Waiting for seat ${activeSeat + 1}…`}
+          </div>
+          <div className="section-hd">seats</div>
+          <PlayerList
+            players={players}
+            activePlayerId={activePlayer?.playerId ?? null}
+            ownerUserId={game.ownerUserId}
+            myUserId={user?.userId ?? null}
+          />
+          {error && <div className="alert">{error}</div>}
+        </div>
+      </div>
+
+      <CountryInspector hoverCountryId={hover} state={state} />
     </div>
   );
 }

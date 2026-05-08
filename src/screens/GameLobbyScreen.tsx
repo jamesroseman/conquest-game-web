@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation } from "@apollo/client";
 import {
@@ -13,7 +14,6 @@ import type {
 } from "@/api/types";
 import { PlayerList } from "@/components/PlayerList";
 import { useAuth } from "@/auth/useAuth";
-import { useState } from "react";
 
 const ARCHETYPES = [
   "aggressor",
@@ -65,9 +65,7 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
     { gameId: string }
   >(START_GAME_MUTATION, { refetchQueries: ["GameQuery"] });
 
-  function handleResult(
-    result: GameMutationResult | StateMutationResult | undefined
-  ): boolean {
+  function handle(result: GameMutationResult | StateMutationResult | undefined): boolean {
     if (!result) return false;
     if (result.__typename === "GameError") {
       setError(result.message);
@@ -81,132 +79,122 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
     const res = await addAiSeat({
       variables: { gameId: game.gameId, archetype: aiArchetype, difficulty: aiDifficulty },
     });
-    handleResult(res.data?.addAiSeat);
+    handle(res.data?.addAiSeat);
   }
 
   async function onRemove(playerId: string): Promise<void> {
     const res = await removeSeat({
       variables: { gameId: game.gameId, targetPlayerId: playerId },
     });
-    handleResult(res.data?.removeSeat);
+    handle(res.data?.removeSeat);
   }
 
   async function onLeave(): Promise<void> {
     const res = await leaveGame({ variables: { gameId: game.gameId } });
-    if (handleResult(res.data?.leaveGame)) navigate("/");
+    if (handle(res.data?.leaveGame)) navigate("/");
   }
 
   async function onStart(): Promise<void> {
     const res = await startGame({ variables: { gameId: game.gameId } });
-    handleResult(res.data?.startGame);
+    handle(res.data?.startGame);
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-8">
-      <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-slate-100">{game.name}</h2>
-        <p className="text-sm text-slate-400">
-          Lobby · {game.playerCount}/{game.maxPlayers} seats ·{" "}
-          {game.isPublic ? "public" : "private"}
-          {game.inviteCode && (
-            <>
-              {" · invite "}
-              <code className="rounded bg-slate-800 px-1.5 py-0.5 text-xs text-slate-200">
-                {game.inviteCode}
-              </code>
-            </>
-          )}
-        </p>
-      </div>
+    <div className="page-shell">
+      <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="panel">
+          <div className="hd">
+            {game.name}
+            <span className="right">
+              {game.playerCount}/{game.maxPlayers} seats · {game.isPublic ? "public" : "private"}
+              {game.inviteCode && (
+                <>
+                  {" · "}
+                  <span className="chip">{game.inviteCode}</span>
+                </>
+              )}
+            </span>
+          </div>
+          <div className="bd">
+            <div className="section-hd">seats</div>
+            <PlayerList players={players} ownerUserId={game.ownerUserId} myUserId={user?.userId ?? null} />
+            {isOwner && players.filter((p) => p.userId !== user?.userId).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {players
+                  .filter((p) => p.userId !== user?.userId)
+                  .map((p) => (
+                    <button
+                      key={p.playerId}
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", fontSize: 9 }}
+                      onClick={() => onRemove(p.playerId)}
+                    >
+                      Remove seat {p.seatOrder + 1}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
 
-      <section className="mb-6">
-        <h3 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-400">
-          Seats
-        </h3>
-        <PlayerList players={players} ownerUserId={game.ownerUserId} />
         {isOwner && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {players
-              .filter((p) => p.userId !== user?.userId)
-              .map((p) => (
-                <button
-                  key={p.playerId}
-                  type="button"
-                  onClick={() => onRemove(p.playerId)}
-                  className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+          <div className="panel">
+            <div className="hd">add ai seat</div>
+            <div className="bd" style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div style={{ minWidth: 160 }}>
+                <label className="label">archetype</label>
+                <select
+                  className="select"
+                  value={aiArchetype}
+                  onChange={(e) => setAiArchetype(e.target.value)}
                 >
-                  Remove seat {p.seatOrder + 1}
-                </button>
-              ))}
+                  {ARCHETYPES.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div style={{ minWidth: 120 }}>
+                <label className="label">difficulty</label>
+                <select
+                  className="select"
+                  value={aiDifficulty}
+                  onChange={(e) => setAiDifficulty(e.target.value)}
+                >
+                  {["easy", "medium", "hard", "brutal"].map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={onAddAi}
+                disabled={addingAi || game.playerCount >= game.maxPlayers}
+              >
+                Add AI
+              </button>
+            </div>
           </div>
         )}
-      </section>
 
-      {isOwner && (
-        <section className="mb-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h3 className="mb-3 text-sm font-medium text-slate-200">Add AI seat</h3>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="flex flex-col text-xs text-slate-400">
-              Archetype
-              <select
-                value={aiArchetype}
-                onChange={(e) => setAiArchetype(e.target.value)}
-                className="mt-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100"
-              >
-                {ARCHETYPES.map((a) => (
-                  <option key={a} value={a}>
-                    {a}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col text-xs text-slate-400">
-              Difficulty
-              <select
-                value={aiDifficulty}
-                onChange={(e) => setAiDifficulty(e.target.value)}
-                className="mt-1 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100"
-              >
-                {["easy", "medium", "hard", "brutal"].map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </label>
+        {error && <div className="alert">{error}</div>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          {isOwner ? (
             <button
               type="button"
-              onClick={onAddAi}
-              disabled={addingAi || game.playerCount >= game.maxPlayers}
-              className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:bg-indigo-900"
+              className="btn btn-good"
+              onClick={onStart}
+              disabled={starting || game.playerCount < game.minPlayers}
+              style={{ flex: 1 }}
             >
-              Add AI
+              {starting ? "Starting…" : "Start game"}
             </button>
-          </div>
-        </section>
-      )}
-
-      {error && <p className="mb-4 text-sm text-rose-400">{error}</p>}
-
-      <div className="flex gap-2">
-        {isOwner ? (
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={starting || game.playerCount < game.minPlayers}
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:bg-emerald-900"
-          >
-            {starting ? "Starting…" : "Start game"}
-          </button>
-        ) : myPlayer ? (
-          <button
-            type="button"
-            onClick={onLeave}
-            className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
-          >
-            Leave lobby
-          </button>
-        ) : null}
+          ) : myPlayer ? (
+            <button type="button" className="btn btn-bad" onClick={onLeave}>
+              Leave lobby
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

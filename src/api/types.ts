@@ -20,6 +20,24 @@ export type Terrain = "land" | "ocean";
 
 export type PathKind = "land" | "sea";
 
+export type Climate = "arctic" | "temperate" | "subtropical" | "tropical";
+
+export type Biome =
+  | "ocean"
+  | "coast"
+  | "beach"
+  | "grassland"
+  | "forest"
+  | "jungle"
+  | "swamp"
+  | "wetland"
+  | "desert"
+  | "savanna"
+  | "boreal"
+  | "tundra"
+  | "mountain"
+  | "snow";
+
 export interface User {
   userId: string;
   email: string | null;
@@ -43,6 +61,7 @@ export interface Tile {
   y: number;
   terrain: Terrain;
   countryId: string | null;
+  biome: Biome;
 }
 
 export interface TileCoord {
@@ -74,6 +93,7 @@ export interface Continent {
   countryIds: string[];
   tileCount: number;
   bonusArmies: number;
+  climate: Climate;
 }
 
 export interface ConquestMap {

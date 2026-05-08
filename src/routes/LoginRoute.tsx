@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { useAuth } from "@/auth/useAuth";
 
 const DEV_LOGIN_ENABLED =
@@ -28,50 +28,63 @@ export function LoginRoute(): JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 px-4">
-      <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
-        <h1 className="mb-1 text-2xl font-semibold text-slate-100">Conquest</h1>
-        <p className="mb-6 text-sm text-slate-400">
-          Sign in to play. The Google sign-in flow is wired up server-side; the dev login is here
-          for local play.
-        </p>
+    <>
+      <header className="title-bar">
+        <Link to="/login" className="brand">
+          PANDEMRISK
+        </Link>
+        <span className="sub">// strategic atlas — login</span>
+      </header>
+      <div className="page starfield">
+        <div className="panel" style={{ width: 360 }}>
+          <div className="hd">
+            authenticate <span className="right">v0.1</span>
+          </div>
+          <div className="bd" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <p style={{ margin: 0, color: "var(--ink-dim)", lineHeight: 1.5, fontSize: 11 }}>
+              Sign in to dispatch agents and contain the outbreak. Google sign-in is wired
+              server-side; the dev login below is for local play.
+            </p>
 
-        <button
-          type="button"
-          disabled
-          title="Configure VITE_GOOGLE_CLIENT_ID and wire @react-oauth/google to enable"
-          className="mb-6 w-full cursor-not-allowed rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-400"
-        >
-          Sign in with Google (configure to enable)
-        </button>
-
-        {DEV_LOGIN_ENABLED ? (
-          <form onSubmit={onDevSubmit} className="space-y-3">
-            <label className="block text-sm font-medium text-slate-300" htmlFor="display-name">
-              Dev login
-            </label>
-            <input
-              id="display-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Display name"
-              className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-slate-100 placeholder:text-slate-500 focus:border-indigo-500 focus:outline-none"
-              autoFocus
-            />
             <button
-              type="submit"
-              disabled={submitting || !name.trim()}
-              className="w-full rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-indigo-900"
+              type="button"
+              disabled
+              title="Configure VITE_GOOGLE_CLIENT_ID and wire @react-oauth/google to enable"
+              className="btn"
             >
-              {submitting ? "Signing in…" : "Continue"}
+              Sign in with Google · disabled
             </button>
-            {error && <p className="text-sm text-rose-400">{error}</p>}
-          </form>
-        ) : (
-          <p className="text-sm text-slate-400">Dev login is disabled in this build.</p>
-        )}
+
+            {DEV_LOGIN_ENABLED ? (
+              <form onSubmit={onDevSubmit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="section-hd">dev login</div>
+                <label className="label" htmlFor="display-name">Display name</label>
+                <input
+                  id="display-name"
+                  type="text"
+                  className="input"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="commander"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="btn"
+                  disabled={submitting || !name.trim()}
+                >
+                  {submitting ? "Signing in…" : "Continue"}
+                </button>
+                {error && <div className="alert">{error}</div>}
+              </form>
+            ) : (
+              <p style={{ margin: 0, color: "var(--ink-dim)", fontSize: 11 }}>
+                Dev login is disabled in this build.
+              </p>
+            )}
+          </div>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

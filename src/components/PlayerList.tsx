@@ -4,45 +4,43 @@ interface Props {
   players: Player[];
   activePlayerId?: string | null;
   ownerUserId?: string;
+  myUserId?: string | null;
 }
 
-export function PlayerList({ players, activePlayerId, ownerUserId }: Props): JSX.Element {
+export function PlayerList({ players, activePlayerId, ownerUserId, myUserId }: Props): JSX.Element {
   const ordered = [...players].sort((a, b) => a.seatOrder - b.seatOrder);
   return (
-    <ul className="space-y-2">
+    <div>
       {ordered.map((p) => {
         const isActive = p.playerId === activePlayerId;
         const isOwner = ownerUserId && p.userId === ownerUserId;
+        const isMe = myUserId && p.userId === myUserId;
         return (
-          <li
-            key={p.playerId}
-            className={`flex items-center justify-between rounded-md border px-3 py-2 ${
-              isActive ? "border-amber-400 bg-amber-400/10" : "border-slate-800 bg-slate-900"
-            }`}
-          >
-            <div className="flex items-center gap-2">
+          <div key={p.playerId} className={`prow${isActive ? " active" : ""}`}>
+            <span className="who">
               <span
-                className="inline-block h-3 w-3 rounded-full"
-                style={{ backgroundColor: p.color }}
-                aria-hidden
+                className="dot"
+                style={{ background: p.color, boxShadow: `0 0 6px ${p.color}` }}
               />
-              <span className="text-sm text-slate-100">
-                Seat {p.seatOrder + 1}{" "}
+              <span className="nm">
+                Seat {p.seatOrder + 1}
                 {p.kind === "ai" ? (
-                  <span className="text-slate-400">(AI {p.archetype}/{p.difficulty})</span>
-                ) : (
-                  <span className="text-slate-400">(human{isOwner ? " · owner" : ""})</span>
-                )}
+                  <span className="ai" style={{ marginLeft: 6 }}>
+                    AI · {p.archetype}/{p.difficulty}
+                  </span>
+                ) : null}
+                {isOwner ? <span className="ai" style={{ marginLeft: 6 }}>owner</span> : null}
               </span>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-slate-400">
-              <span>{p.countriesOwned} ctry</span>
-              <span>{p.totalArmies} army</span>
-              {p.eliminated && <span className="text-rose-400">eliminated</span>}
-            </div>
-          </li>
+              {isMe ? <span className="me">you</span> : null}
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 10 }}>
+              <span className="cn">{p.countriesOwned}c</span>
+              <span className="cn">{p.totalArmies}a</span>
+              {p.eliminated && <span className="elim">x</span>}
+            </span>
+          </div>
         );
       })}
-    </ul>
+    </div>
   );
 }
