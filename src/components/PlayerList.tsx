@@ -7,6 +7,8 @@ interface Props {
   myUserId?: string | null;
 }
 
+// Player roster. AI archetype/difficulty is intentionally hidden — the bot's
+// playstyle is a server-side surprise that's supposed to feel fresh per game.
 export function PlayerList({ players, activePlayerId, ownerUserId, myUserId }: Props): JSX.Element {
   const ordered = [...players].sort((a, b) => a.seatOrder - b.seatOrder);
   return (
@@ -24,11 +26,7 @@ export function PlayerList({ players, activePlayerId, ownerUserId, myUserId }: P
               />
               <span className="nm">
                 Seat {p.seatOrder + 1}
-                {p.kind === "ai" ? (
-                  <span className="ai" style={{ marginLeft: 6 }}>
-                    AI · {p.archetype}/{p.difficulty}
-                  </span>
-                ) : null}
+                {p.kind === "ai" ? <span className="ai" style={{ marginLeft: 6 }}>AI</span> : null}
                 {isOwner ? <span className="ai" style={{ marginLeft: 6 }}>owner</span> : null}
               </span>
               {isMe ? <span className="me">you</span> : null}

@@ -130,10 +130,21 @@ export function ActionPanel({
   );
 
   if (!isMyTurn || !myPlayer) {
+    const active = state.players.find((p) => p.playerId === game.turn.activePlayerId);
     return (
       <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>
         <div>Round {game.turn.roundNumber} · turn {game.turn.turnNumber} · phase {game.turn.phase}</div>
-        <div style={{ marginTop: 4 }}>Watch the map — the bot is making its move.</div>
+        <div style={{ marginTop: 4 }}>
+          {active ? (
+            active.kind === "ai" ? (
+              <>Watch the map — seat {active.seatOrder + 1} (AI) is making its move.</>
+            ) : (
+              <>Waiting on seat {active.seatOrder + 1}.</>
+            )
+          ) : (
+            "Waiting…"
+          )}
+        </div>
       </div>
     );
   }

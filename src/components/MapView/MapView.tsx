@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useRef } from "react";
-import type {
-  ConquestMap,
-  CountryState,
-  Player,
-  Tile,
-} from "@/api/types";
-import { TILE_PX, drawTile } from "@/lib/biomes";
+import type { ConquestMap, CountryState, Player, Tile } from "@/api/types";
+import { drawIsoTile } from "@/lib/biomes";
+import {
+  TH,
+  TW,
+  type IsoMath,
+  diamondCorners,
+  forEachIsoTile,
+  isoPos,
+  makeIso,
+  pickTile,
+} from "@/lib/iso";
+import { drawWoodFrame } from "@/lib/wood";
 import { drawBiohazard, drawCapitalStar, drawResearcher, drawSoldier } from "@/lib/sprites";
-import { clampView, type View, ZOOM_MIN, ZOOM_MAX } from "@/lib/view";
+import { ZOOM_MAX, ZOOM_MIN, clampView, type View } from "@/lib/view";
 
 interface Props {
   map: ConquestMap;
@@ -21,64 +27,61 @@ interface Props {
   onViewportSize?: (w: number, h: number) => void;
 }
 
-function buildOutlinePaths(
-  tilesByXY: (Tile | null)[][],
-  width: number,
-  height: number
-): {
+interface Outlines {
   coast: Path2D;
   byCountry: Map<string, Path2D>;
-} {
+}
+
+// Build coast + per-country diamond-edge paths in a single sweep. For each
+// land tile, every edge facing ocean → coast; every edge facing a different
+// country (same landmass) → that country's outline (counted once via id ordering).
+function buildOutlines(
+  tilesByXY: (Tile | null)[][],
+  iso: IsoMath
+): Outlines {
   const coast = new Path2D();
   const byCountry = new Map<string, Path2D>();
-  function ensure(cid: string): Path2D {
+  const ensure = (cid: string): Path2D => {
     let p = byCountry.get(cid);
     if (!p) {
       p = new Path2D();
       byCountry.set(cid, p);
     }
     return p;
-  }
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+  };
+  const addEdge = (path: Path2D, a: { x: number; y: number }, b: { x: number; y: number }): void => {
+    path.moveTo(a.x + 0.5, a.y + 0.5);
+    path.lineTo(b.x + 0.5, b.y + 0.5);
+  };
+
+  for (let y = 0; y < iso.height; y++) {
+    for (let x = 0; x < iso.width; x++) {
       const t = tilesByXY[x][y];
       if (!t || t.terrain !== "land" || !t.countryId) continue;
-      const px = x * TILE_PX;
-      const py = y * TILE_PX;
+      const corners = diamondCorners(iso, x, y, 0);
       const cid = t.countryId;
       const cp = ensure(cid);
-      const top = y === 0 ? null : tilesByXY[x][y - 1];
-      const bot = y === height - 1 ? null : tilesByXY[x][y + 1];
-      const left = x === 0 ? null : tilesByXY[x - 1][y];
-      const right = x === width - 1 ? null : tilesByXY[x + 1][y];
-
-      if (!top || top.terrain === "ocean") {
-        coast.moveTo(px, py + 0.5);
-        coast.lineTo(px + TILE_PX, py + 0.5);
-      } else if (top.countryId !== cid) {
-        cp.moveTo(px, py + 0.5);
-        cp.lineTo(px + TILE_PX, py + 0.5);
-      }
-      if (!bot || bot.terrain === "ocean") {
-        coast.moveTo(px, py + TILE_PX - 0.5);
-        coast.lineTo(px + TILE_PX, py + TILE_PX - 0.5);
-      } else if (bot.countryId !== cid) {
-        cp.moveTo(px, py + TILE_PX - 0.5);
-        cp.lineTo(px + TILE_PX, py + TILE_PX - 0.5);
-      }
-      if (!left || left.terrain === "ocean") {
-        coast.moveTo(px + 0.5, py);
-        coast.lineTo(px + 0.5, py + TILE_PX);
-      } else if (left.countryId !== cid) {
-        cp.moveTo(px + 0.5, py);
-        cp.lineTo(px + 0.5, py + TILE_PX);
-      }
-      if (!right || right.terrain === "ocean") {
-        coast.moveTo(px + TILE_PX - 0.5, py);
-        coast.lineTo(px + TILE_PX - 0.5, py + TILE_PX);
-      } else if (right.countryId !== cid) {
-        cp.moveTo(px + TILE_PX - 0.5, py);
-        cp.lineTo(px + TILE_PX - 0.5, py + TILE_PX);
+      // Edge → neighbour pairs. Iso diamond: top→right (NE),
+      // right→bottom (SE), bottom→left (SW), left→top (NW).
+      const edges: Array<[number, number, { x: number; y: number }, { x: number; y: number }]> = [
+        [x + 1, y, corners.top, corners.right], // NE → east neighbour
+        [x, y + 1, corners.right, corners.bottom], // SE → south neighbour
+        [x - 1, y, corners.bottom, corners.left], // SW → west neighbour
+        [x, y - 1, corners.left, corners.top], // NW → north neighbour
+      ];
+      for (const [nx, ny, a, b] of edges) {
+        const inb = nx >= 0 && nx < iso.width && ny >= 0 && ny < iso.height;
+        const nt = inb ? tilesByXY[nx][ny] : null;
+        if (!nt || nt.terrain !== "land") {
+          addEdge(coast, a, b);
+          addEdge(cp, a, b);
+        } else if (nt.countryId !== cid) {
+          // Country border within a landmass — count once per pair.
+          if (cid < (nt.countryId ?? "")) {
+            addEdge(cp, a, b);
+            addEdge(ensure(nt.countryId!), a, b);
+          }
+        }
       }
     }
   }
@@ -96,8 +99,7 @@ export function MapView({
   onCountryHover,
   onViewportSize,
 }: Props): JSX.Element {
-  const canvasW = map.width * TILE_PX;
-  const canvasH = map.height * TILE_PX;
+  const iso = useMemo(() => makeIso(map.width, map.height), [map.width, map.height]);
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -114,10 +116,7 @@ export function MapView({
     return grid;
   }, [map]);
 
-  const outlines = useMemo(
-    () => buildOutlinePaths(tilesByXY, map.width, map.height),
-    [tilesByXY, map.width, map.height]
-  );
+  const outlines = useMemo(() => buildOutlines(tilesByXY, iso), [tilesByXY, iso]);
 
   const playerColorById = useMemo(() => {
     const m = new Map<string, string>();
@@ -131,18 +130,24 @@ export function MapView({
     return m;
   }, [countryStates]);
 
-  // Static base layer — recomputed only when the map itself changes.
+  // Static base layer — iso tiles painted in painter's order plus the wood
+  // frame. Re-rendered only on map change.
   useEffect(() => {
     const base = document.createElement("canvas");
-    base.width = canvasW;
-    base.height = canvasH;
+    base.width = iso.canvasW;
+    base.height = iso.canvasH;
     const bctx = base.getContext("2d")!;
     bctx.imageSmoothingEnabled = false;
-    for (const t of map.tiles) drawTile(bctx, t.x, t.y, t.biome);
+    forEachIsoTile(iso, (x, y) => {
+      const t = tilesByXY[x][y];
+      if (!t) return;
+      drawIsoTile(bctx, iso, x, y, t.biome);
+    });
+    drawWoodFrame(bctx, iso);
     baseLayerRef.current = base;
-  }, [map, canvasW, canvasH]);
+  }, [iso, tilesByXY]);
 
-  // Report viewport size to parent (for the minimap viewport rectangle).
+  // Report viewport size to the parent (for the minimap viewport rectangle).
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap || !onViewportSize) return;
@@ -156,7 +161,7 @@ export function MapView({
     return () => ro.disconnect();
   }, [onViewportSize]);
 
-  // Animation loop — overlays + sprites + hover/select pulse.
+  // Animation loop.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -165,11 +170,11 @@ export function MapView({
     let raf = 0;
 
     const render = (now: number): void => {
-      ctx.clearRect(0, 0, canvasW, canvasH);
+      ctx.clearRect(0, 0, iso.canvasW, iso.canvasH);
       const base = baseLayerRef.current;
       if (base) ctx.drawImage(base, 0, 0);
 
-      // Country borders coloured by owner with a soft glow.
+      // Country borders coloured by owner.
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -177,16 +182,16 @@ export function MapView({
         const state = stateByCountry.get(cid);
         const color = state?.ownerPlayerId
           ? playerColorById.get(state.ownerPlayerId) ?? "#7a8a9a"
-          : "rgba(216, 230, 242, 0.35)";
+          : "rgba(216, 230, 242, 0.30)";
         ctx.shadowColor = color;
         ctx.shadowBlur = 4;
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.2;
-        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 2;
+        ctx.globalAlpha = 0.55;
         ctx.stroke(path);
         ctx.shadowBlur = 0;
+        ctx.lineWidth = 1.1;
         ctx.globalAlpha = 0.95;
-        ctx.lineWidth = 1;
         ctx.stroke(path);
       }
       ctx.restore();
@@ -196,13 +201,13 @@ export function MapView({
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.shadowColor = "rgba(91,227,255,0.55)";
-      ctx.shadowBlur = 6;
-      ctx.strokeStyle = "rgba(91,227,255,0.75)";
-      ctx.lineWidth = 1.4;
+      ctx.shadowBlur = 8;
+      ctx.strokeStyle = "rgba(91,227,255,0.65)";
+      ctx.lineWidth = 2.4;
       ctx.stroke(outlines.coast);
       ctx.shadowBlur = 0;
       ctx.strokeStyle = "rgba(200,245,255,1)";
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 1.2;
       ctx.stroke(outlines.coast);
       ctx.restore();
 
@@ -218,7 +223,7 @@ export function MapView({
         const state = stateByCountry.get(tgt.id);
         const color = state?.ownerPlayerId
           ? playerColorById.get(state.ownerPlayerId) ?? "#5be3ff"
-          : "#5be3ff";
+          : "#fff7d8";
         ctx.save();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
@@ -241,34 +246,25 @@ export function MapView({
         ctx.restore();
       }
 
-      // Floating country badges with animated army + disease sprites.
-      drawCountryBadges(ctx, map, stateByCountry, playerColorById, now);
+      // Country badges + sprites.
+      drawCountryBadges(ctx, map, iso, stateByCountry, playerColorById, now);
 
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [
-    canvasW,
-    canvasH,
-    map,
-    outlines,
-    stateByCountry,
-    playerColorById,
-    selectedCountryId,
-  ]);
+  }, [iso, map, outlines, stateByCountry, playerColorById, selectedCountryId]);
 
-  // Hit-test point → tile.
+  // Hit-testing — point in canvas-local pixels → tile.
   function pointToTile(clientX: number, clientY: number): Tile | null {
     const wrap = wrapRef.current;
     if (!wrap) return null;
     const rect = wrap.getBoundingClientRect();
     const lx = (clientX - rect.left - view.panX) / view.zoom;
     const ly = (clientY - rect.top - view.panY) / view.zoom;
-    const tx = Math.floor(lx / TILE_PX);
-    const ty = Math.floor(ly / TILE_PX);
-    if (tx < 0 || ty < 0 || tx >= map.width || ty >= map.height) return null;
-    return tilesByXY[tx][ty];
+    const tile = pickTile(map, iso, lx, ly);
+    if (!tile) return null;
+    return tilesByXY[tile.x][tile.y];
   }
 
   function onMouseDown(e: React.MouseEvent): void {
@@ -286,17 +282,20 @@ export function MapView({
     const wrap = wrapRef.current;
     if (!wrap) return;
     if (dragRef.current) {
-      const dx = e.clientX - dragRef.current.sx;
-      const dy = e.clientY - dragRef.current.sy;
-      if (Math.abs(dx) + Math.abs(dy) > 3) dragRef.current.moved = true;
+      const drag = dragRef.current; // capture before the state-update closure runs
+      const dx = e.clientX - drag.sx;
+      const dy = e.clientY - drag.sy;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
       const r = wrap.getBoundingClientRect();
+      const startPanX = drag.px;
+      const startPanY = drag.py;
       setView((v) =>
         clampView(
-          { ...v, panX: dragRef.current!.px + dx, panY: dragRef.current!.py + dy },
+          { ...v, panX: startPanX + dx, panY: startPanY + dy },
           r.width,
           r.height,
-          canvasW,
-          canvasH
+          iso.canvasW,
+          iso.canvasH
         )
       );
       return;
@@ -340,8 +339,8 @@ export function MapView({
         { panX: cx - wx * z, panY: cy - wy * z, zoom: z },
         r.width,
         r.height,
-        canvasW,
-        canvasH
+        iso.canvasW,
+        iso.canvasH
       );
     });
   }
@@ -358,8 +357,8 @@ export function MapView({
     >
       <canvas
         ref={canvasRef}
-        width={canvasW}
-        height={canvasH}
+        width={iso.canvasW}
+        height={iso.canvasH}
         className="map-canvas"
         style={{
           transform: `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom})`,
@@ -391,9 +390,13 @@ function roundRect(
   ctx.closePath();
 }
 
+// Floating badges anchored above each populated country's centroid using iso
+// projection. Sprite + count on each side, with capital / researcher /
+// vaccinated overlays sitting on the tile centroid itself.
 function drawCountryBadges(
   ctx: CanvasRenderingContext2D,
   map: ConquestMap,
+  iso: IsoMath,
   stateByCountry: Map<string, CountryState>,
   playerColorById: Map<string, string>,
   now: number
@@ -412,18 +415,16 @@ function drawCountryBadges(
       ? playerColorById.get(state.ownerPlayerId) ?? "#aab8c4"
       : "#aab8c4";
 
-    const cx = (c.centroidX + 0.5) * TILE_PX;
-    const cy = (c.centroidY + 0.5) * TILE_PX;
+    const { cx, cy } = isoPos(iso, c.centroidX, c.centroidY, 0);
+    const anchorX = cx;
+    const anchorY = cy + TH / 2;
 
-    // Badge geometry — wider when counts grow into 2 digits.
-    const w = armies >= 100 || cubes >= 10 ? 60 : 48;
-    const h = 18;
-    const x0 = cx - w / 2;
-    const y0 = cy - h - 8;
+    const w = armies >= 100 || cubes >= 10 ? 64 : 52;
+    const h = 20;
+    const x0 = anchorX - w / 2;
+    const y0 = anchorY - h - 18;
 
     ctx.save();
-
-    // Drop shadow.
     ctx.shadowColor = "rgba(0,0,0,0.7)";
     ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 2;
@@ -437,7 +438,6 @@ function drawCountryBadges(
     roundRect(ctx, x0 + 1, y0 + 1, w - 2, h - 2, 3.2);
     ctx.fill();
 
-    // Severity-coded right-half border, pulsing at high cube counts.
     const sev = Math.min(1, cubes / 3);
     const accent = cubes === 0
       ? "rgba(91,227,255,0.4)"
@@ -453,19 +453,19 @@ function drawCountryBadges(
     roundRect(ctx, x0 + 0.5, y0 + 0.5, w - 1, h - 1, 3.6);
     ctx.stroke();
 
-    // Divider.
-    ctx.fillStyle = "rgba(91,227,255,0.2)";
-    ctx.fillRect(x0 + w / 2, y0 + 3, 1, h - 6);
+    ctx.fillStyle = "rgba(91,227,255,0.18)";
+    ctx.fillRect(x0 + w / 2, y0 + 4, 1, h - 8);
 
-    // --- Left half: animated soldier sprite + count -------------
     if (armies > 0) {
-      const phaseSeed = ((c.countryId.charCodeAt(0) ?? 0) + (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
+      const phaseSeed =
+        ((c.countryId.charCodeAt(0) ?? 0) +
+          (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
       drawSoldier(ctx, x0 + 4, y0 + 5, ownerColor, now, phaseSeed);
       ctx.fillStyle = "#f4f7e8";
       ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(armies), x0 + 12, y0 + h / 2 + 0.5);
+      ctx.fillText(String(armies), x0 + 13, y0 + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
       ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
@@ -474,15 +474,14 @@ function drawCountryBadges(
       ctx.fillText("·", x0 + w / 4, y0 + h / 2 + 0.5);
     }
 
-    // --- Right half: animated biohazard + count -----------------
     if (cubes > 0) {
       const phaseSeed = c.countryId.length * 13;
-      drawBiohazard(ctx, x0 + w / 2 + 3, y0 + 5, accent, now, phaseSeed);
+      drawBiohazard(ctx, x0 + w / 2 + 4, y0 + 5, accent, now, phaseSeed);
       ctx.fillStyle = accent;
       ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(cubes), x0 + w / 2 + 13, y0 + h / 2 + 0.5);
+      ctx.fillText(String(cubes), x0 + w / 2 + 14, y0 + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
       ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
@@ -493,12 +492,10 @@ function drawCountryBadges(
 
     ctx.restore();
 
-    // Capital + researcher + vaccinated overlays sit ON the centroid tile,
-    // not in the badge — keeps the badge legible and the country state at-a-glance.
-    if (cap) drawCapitalStar(ctx, cx, cy + 6, now);
+    if (cap) drawCapitalStar(ctx, anchorX, anchorY + 4, now);
     if (researcherPid) {
       const col = playerColorById.get(researcherPid) ?? "#ffffff";
-      drawResearcher(ctx, cx + 9, cy + 6, col, now);
+      drawResearcher(ctx, anchorX + 10, anchorY + 4, col, now);
     }
     if (vacc) {
       ctx.save();
@@ -507,9 +504,12 @@ function drawCountryBadges(
       ctx.shadowBlur = 4;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy + 6, 8, 0, Math.PI * 2);
+      ctx.arc(anchorX, anchorY + 4, 8, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
   }
 }
+
+// Re-export iso constants so callers (screens) can size things consistently.
+export { TW as ISO_TW, TH as ISO_TH };

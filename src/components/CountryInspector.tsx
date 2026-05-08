@@ -114,7 +114,7 @@ export function CountryInspector({ hoverCountryId, state }: Props): JSX.Element 
                         display: "inline-block",
                         width: 8,
                         height: 8,
-                        background: PAL[b.biome as keyof typeof PAL].base,
+                        background: PAL[b.biome as keyof typeof PAL].top,
                         border: "1px solid rgba(0,0,0,0.6)",
                       }}
                     />

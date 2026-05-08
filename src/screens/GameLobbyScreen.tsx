@@ -15,21 +15,6 @@ import type {
 import { PlayerList } from "@/components/PlayerList";
 import { useAuth } from "@/auth/useAuth";
 
-const ARCHETYPES = [
-  "aggressor",
-  "turtle",
-  "medic",
-  "opportunist",
-  "expansionist",
-  "consolidator",
-  "saboteur",
-  "kingmaker",
-  "doomsayer",
-  "isolationist",
-  "bandwagon",
-  "chaos",
-];
-
 interface Props {
   state: GameStateView;
 }
@@ -38,16 +23,16 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { game, players } = state;
-  const [aiArchetype, setAiArchetype] = useState("chaos");
-  const [aiDifficulty, setAiDifficulty] = useState("medium");
   const [error, setError] = useState<string | null>(null);
 
   const isOwner = user?.userId === game.ownerUserId;
   const myPlayer = players.find((p) => p.userId === user?.userId);
 
+  // Archetype is intentionally null so the server picks one at random — the
+  // bot's playstyle is meant to be a surprise, not a configurable knob.
   const [addAiSeat, { loading: addingAi }] = useMutation<
     { addAiSeat: GameMutationResult },
-    { gameId: string; archetype: string; difficulty: string }
+    { gameId: string; archetype?: string | null; difficulty?: string | null }
   >(ADD_AI_SEAT_MUTATION, { refetchQueries: ["GameQuery"] });
 
   const [removeSeat] = useMutation<
@@ -77,7 +62,7 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
 
   async function onAddAi(): Promise<void> {
     const res = await addAiSeat({
-      variables: { gameId: game.gameId, archetype: aiArchetype, difficulty: aiDifficulty },
+      variables: { gameId: game.gameId, archetype: null, difficulty: null },
     });
     handle(res.data?.addAiSeat);
   }
@@ -141,28 +126,10 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
         {isOwner && (
           <div className="panel">
             <div className="hd">add ai seat</div>
-            <div className="bd" style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <div style={{ minWidth: 160 }}>
-                <label className="label">archetype</label>
-                <select
-                  className="select"
-                  value={aiArchetype}
-                  onChange={(e) => setAiArchetype(e.target.value)}
-                >
-                  {ARCHETYPES.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
-              <div style={{ minWidth: 120 }}>
-                <label className="label">difficulty</label>
-                <select
-                  className="select"
-                  value={aiDifficulty}
-                  onChange={(e) => setAiDifficulty(e.target.value)}
-                >
-                  {["easy", "medium", "hard", "brutal"].map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+            <div className="bd" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ flex: 1, fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.5 }}>
+                The server picks a fresh playstyle for each bot — keeps every game
+                feeling different.
               </div>
               <button
                 type="button"
@@ -170,7 +137,7 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
                 onClick={onAddAi}
                 disabled={addingAi || game.playerCount >= game.maxPlayers}
               >
-                Add AI
+                + AI seat
               </button>
             </div>
           </div>

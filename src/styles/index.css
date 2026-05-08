@@ -552,7 +552,6 @@ body::after {
   height: 220px;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  cursor: crosshair;
   background: #02040a;
   border: 1px solid var(--neon-line);
   display: block;

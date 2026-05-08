@@ -12,7 +12,7 @@ import { PlayerList } from "@/components/PlayerList";
 import { CountryInspector } from "@/components/CountryInspector";
 import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
 import { useAuth } from "@/auth/useAuth";
-import { TILE_PX } from "@/lib/biomes";
+import { makeIso } from "@/lib/iso";
 import { fitView, type View } from "@/lib/view";
 
 interface Props {
@@ -32,7 +32,8 @@ export function SetupScreen({ state }: Props): JSX.Element {
     if (!map || viewport.w <= 1 || viewport.h <= 1) return;
     if (lastMapId.current === map.mapId) return;
     lastMapId.current = map.mapId;
-    setView(fitView(viewport.w, viewport.h, map.width * TILE_PX, map.height * TILE_PX));
+    const iso = makeIso(map.width, map.height);
+    setView(fitView(viewport.w, viewport.h, iso.canvasW, iso.canvasH));
   }, [map, viewport.w, viewport.h]);
 
   const myPlayer = players.find((p) => p.userId === user?.userId) ?? null;

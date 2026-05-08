@@ -6,8 +6,8 @@ interface Props {
 }
 
 // Pulsing "AI THINKING" chip — shown anywhere we're handing the screen over to
-// the bot for a turn. The 3-bar wave is a CSS animation defined in
-// styles/index.css.
+// the bot for a turn. Archetype/difficulty are intentionally hidden — they're
+// a server-side surprise that should feel fresh, not labelled.
 export function AiThinkingIndicator({ activePlayer, className }: Props): JSX.Element | null {
   if (!activePlayer || activePlayer.kind !== "ai") return null;
   return (
@@ -24,9 +24,7 @@ export function AiThinkingIndicator({ activePlayer, className }: Props): JSX.Ele
           <span />
         </span>
       </span>
-      <span className="ai-meta">
-        seat {activePlayer.seatOrder + 1} · {activePlayer.archetype} / {activePlayer.difficulty}
-      </span>
+      <span className="ai-meta">seat {activePlayer.seatOrder + 1} taking its turn</span>
     </div>
   );
 }
