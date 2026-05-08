@@ -231,7 +231,7 @@ export const LEAVE_GAME_MUTATION = gql`
 
 export const ADD_AI_SEAT_MUTATION = gql`
   ${GAME_FIELDS}
-  mutation AddAiSeatMutation($gameId: String!, $archetype: String!, $difficulty: String) {
+  mutation AddAiSeatMutation($gameId: String!, $archetype: String, $difficulty: String) {
     addAiSeat(gameId: $gameId, archetype: $archetype, difficulty: $difficulty) {
       __typename
       ... on GameResult {
