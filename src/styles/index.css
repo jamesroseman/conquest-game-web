@@ -508,3 +508,185 @@ body::after {
 }
 .subform .row { display: flex; align-items: center; gap: 6px; }
 .subform .row .label { margin: 0; min-width: 60px; }
+
+/* Reusable utility for stacking small breaks of vertical space — applied
+   to AI-thinking before the action panel body, etc. */
+.mb-8 { margin-bottom: 8px; }
+
+/* ============================================================
+   Minimap.
+   ============================================================ */
+.minimap-panel {
+  width: 232px;
+  padding: 6px;
+}
+.minimap-panel .hd {
+  border-bottom: 0;
+  padding: 4px 4px 6px;
+}
+.minimap-panel .right .mzb {
+  appearance: none;
+  border: 1px solid rgba(91, 227, 255, 0.30);
+  background: rgba(91, 227, 255, 0.06);
+  color: var(--neon);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  width: 20px;
+  height: 18px;
+  cursor: pointer;
+  padding: 0;
+}
+.minimap-panel .right .mzb:hover {
+  background: rgba(91, 227, 255, 0.18);
+}
+.minimap-panel .right .mzl {
+  color: var(--ink-dim);
+  font-size: 9px;
+  min-width: 32px;
+  text-align: center;
+  letter-spacing: 0.06em;
+}
+.minimap-panel .mini-canvas {
+  width: 220px;
+  height: 220px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: crosshair;
+  background: #02040a;
+  border: 1px solid var(--neon-line);
+  display: block;
+}
+
+/* ============================================================
+   AI thinking indicator — pulses while a bot's turn is in flight.
+   ============================================================ */
+.ai-thinking {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px dashed rgba(91, 227, 255, 0.35);
+  background: rgba(91, 227, 255, 0.06);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.ai-thinking .ai-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.ai-thinking .ai-label {
+  color: var(--neon);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-thinking .ai-meta {
+  color: var(--ink-dim);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.ai-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+.ai-bars > span {
+  display: inline-block;
+  width: 3px;
+  background: var(--neon);
+  box-shadow: 0 0 4px var(--neon);
+  animation: ai-bar-wave 0.9s ease-in-out infinite;
+}
+.ai-bars > span:nth-child(1) { animation-delay: 0s;   height: 4px;  }
+.ai-bars > span:nth-child(2) { animation-delay: 0.15s; height: 7px;  }
+.ai-bars > span:nth-child(3) { animation-delay: 0.30s; height: 10px; }
+@keyframes ai-bar-wave {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
+  50%      { transform: scaleY(1.0); opacity: 1;    }
+}
+
+/* ============================================================
+   Action tiles — pixel-art glyph + label + cost. Used by the
+   in-game action panel.
+   ============================================================ */
+.action-tile {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 227, 255, 0.22);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.06), rgba(91, 227, 255, 0.0));
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.05s ease;
+}
+.action-tile:hover:not(.is-disabled) {
+  border-color: rgba(91, 227, 255, 0.55);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.18), rgba(91, 227, 255, 0.04));
+}
+.action-tile:active:not(.is-disabled) {
+  transform: translateY(1px);
+}
+.action-tile .ag {
+  font-size: 18px;
+  line-height: 1;
+  width: 22px;
+  text-align: center;
+  color: var(--neon);
+  text-shadow: 0 0 6px rgba(91, 227, 255, 0.7);
+}
+.action-tile .al {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.action-tile .al-name {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.action-tile .al-cost {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+.action-tile.action-tile-good .ag {
+  color: var(--good);
+  text-shadow: 0 0 6px rgba(155, 225, 93, 0.7);
+}
+.action-tile.action-tile-good:hover:not(.is-disabled) {
+  border-color: rgba(155, 225, 93, 0.55);
+  background: linear-gradient(180deg, rgba(155, 225, 93, 0.16), rgba(155, 225, 93, 0.02));
+}
+.action-tile.action-tile-bad .ag {
+  color: var(--bad);
+  text-shadow: 0 0 6px rgba(232, 91, 58, 0.7);
+}
+.action-tile.action-tile-bad:hover:not(.is-disabled) {
+  border-color: rgba(232, 91, 58, 0.55);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.16), rgba(232, 91, 58, 0.02));
+}
+.action-tile.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.action-tile.is-disabled .ag {
+  color: var(--ink-faint);
+  text-shadow: none;
+}

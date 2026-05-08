@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@apollo/client";
 import {
   PLACE_CAPITAL_MUTATION,
@@ -7,9 +7,13 @@ import {
 } from "@/api/operations";
 import type { GameStateView, StateMutationResult } from "@/api/types";
 import { MapView } from "@/components/MapView/MapView";
+import { Minimap } from "@/components/Minimap";
 import { PlayerList } from "@/components/PlayerList";
-import { useAuth } from "@/auth/useAuth";
 import { CountryInspector } from "@/components/CountryInspector";
+import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
+import { useAuth } from "@/auth/useAuth";
+import { TILE_PX } from "@/lib/biomes";
+import { fitView, type View } from "@/lib/view";
 
 interface Props {
   state: GameStateView;
@@ -20,10 +24,23 @@ export function SetupScreen({ state }: Props): JSX.Element {
   const { game, players, countryStates, map } = state;
   const [error, setError] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
+  const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
+  const [viewport, setViewport] = useState({ w: 1, h: 1 });
+  const lastMapId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!map || viewport.w <= 1 || viewport.h <= 1) return;
+    if (lastMapId.current === map.mapId) return;
+    lastMapId.current = map.mapId;
+    setView(fitView(viewport.w, viewport.h, map.width * TILE_PX, map.height * TILE_PX));
+  }, [map, viewport.w, viewport.h]);
 
   const myPlayer = players.find((p) => p.userId === user?.userId) ?? null;
   const activeSeat = game.setup.activeSeatOrder;
-  const activePlayer = players.find((p) => p.seatOrder === activeSeat) ?? null;
+  const activePlayer = useMemo(
+    () => players.find((p) => p.seatOrder === activeSeat) ?? null,
+    [players, activeSeat]
+  );
   const isMyTurn = !!myPlayer && myPlayer.seatOrder === activeSeat;
 
   const [placeTroop] = useMutation<
@@ -91,8 +108,11 @@ export function SetupScreen({ state }: Props): JSX.Element {
             map={map}
             countryStates={countryStates}
             players={players}
+            view={view}
+            setView={setView}
             onCountryClick={onCountryClick}
             onCountryHover={setHover}
+            onViewportSize={(w, h) => setViewport({ w, h })}
           />
         ) : (
           <div className="bd dim" style={{ padding: 80, textAlign: "center" }}>
@@ -101,11 +121,12 @@ export function SetupScreen({ state }: Props): JSX.Element {
         )}
       </div>
 
-      <div className="panel panel-fixed" style={{ top: 60, left: 14, minWidth: 240 }}>
+      <div className="panel panel-fixed" style={{ top: 60, left: 14, minWidth: 240, width: 280 }}>
         <div className="hd">
           setup · {game.setup.phase}
         </div>
         <div className="bd">
+          <AiThinkingIndicator activePlayer={isMyTurn ? null : activePlayer} className="mb-8" />
           <div
             style={{
               padding: "6px 8px",
@@ -129,6 +150,17 @@ export function SetupScreen({ state }: Props): JSX.Element {
       </div>
 
       <CountryInspector hoverCountryId={hover} state={state} />
+
+      {map && (
+        <Minimap
+          map={map}
+          countryStates={countryStates}
+          players={players}
+          view={view}
+          setView={setView}
+          viewportSize={viewport}
+        />
+      )}
     </div>
   );
 }

@@ -1,8 +1,12 @@
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { GameStateView } from "@/api/types";
 import { PlayerList } from "@/components/PlayerList";
 import { MapView } from "@/components/MapView/MapView";
+import { Minimap } from "@/components/Minimap";
 import { useAuth } from "@/auth/useAuth";
+import { TILE_PX } from "@/lib/biomes";
+import { fitView, type View } from "@/lib/view";
 
 interface Props {
   state: GameStateView;
@@ -11,15 +15,32 @@ interface Props {
 export function GameOverScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const { game, players, countryStates, map } = state;
+  const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
+  const [viewport, setViewport] = useState({ w: 1, h: 1 });
+  const lastMapId = useRef<string | null>(null);
   const winner = game.winnerPlayerId
     ? players.find((p) => p.playerId === game.winnerPlayerId)
     : null;
+
+  useEffect(() => {
+    if (!map || viewport.w <= 1 || viewport.h <= 1) return;
+    if (lastMapId.current === map.mapId) return;
+    lastMapId.current = map.mapId;
+    setView(fitView(viewport.w, viewport.h, map.width * TILE_PX, map.height * TILE_PX));
+  }, [map, viewport.w, viewport.h]);
 
   return (
     <div className="page-game">
       <div style={{ position: "absolute", inset: 0 }}>
         {map && (
-          <MapView map={map} countryStates={countryStates} players={players} />
+          <MapView
+            map={map}
+            countryStates={countryStates}
+            players={players}
+            view={view}
+            setView={setView}
+            onViewportSize={(w, h) => setViewport({ w, h })}
+          />
         )}
       </div>
 
@@ -69,6 +90,17 @@ export function GameOverScreen({ state }: Props): JSX.Element {
           </div>
         </div>
       </div>
+
+      {map && (
+        <Minimap
+          map={map}
+          countryStates={countryStates}
+          players={players}
+          view={view}
+          setView={setView}
+          viewportSize={viewport}
+        />
+      )}
     </div>
   );
 }

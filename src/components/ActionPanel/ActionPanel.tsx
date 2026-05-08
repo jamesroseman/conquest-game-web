@@ -35,6 +35,46 @@ function neighborIds(state: GameStateView, countryId: string): Set<string> {
   return result;
 }
 
+interface ActionButtonProps {
+  glyph: string;
+  label: string;
+  cost: number;
+  disabled?: boolean;
+  onClick?: () => void | Promise<void>;
+  variant?: "default" | "good" | "bad";
+  hint?: string;
+}
+
+// Reusable action tile — pixel-art glyph on the left, label + cost stacked on
+// the right. Disabled state dims everything; enabled state pulses the glyph.
+function ActionTile({
+  glyph,
+  label,
+  cost,
+  disabled,
+  onClick,
+  variant = "default",
+  hint,
+}: ActionButtonProps): JSX.Element {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => void onClick?.()}
+      title={hint}
+      className={`action-tile action-tile-${variant}${disabled ? " is-disabled" : ""}`}
+    >
+      <span className="ag" aria-hidden>
+        {glyph}
+      </span>
+      <span className="al">
+        <span className="al-name">{label}</span>
+        <span className="al-cost">{cost === 0 ? "free" : `${cost} ⚡`}</span>
+      </span>
+    </button>
+  );
+}
+
 export function ActionPanel({
   state,
   myPlayer,
@@ -90,17 +130,10 @@ export function ActionPanel({
   );
 
   if (!isMyTurn || !myPlayer) {
-    const active = state.players.find((p) => p.playerId === game.turn.activePlayerId);
     return (
-      <div style={{ fontSize: 11, color: "var(--ink-dim)", display: "flex", flexDirection: "column", gap: 4 }}>
-        <div>
-          Waiting on{" "}
-          <span style={{ color: active?.color }}>
-            seat {active ? active.seatOrder + 1 : "?"}
-          </span>
-          {active?.kind === "ai" ? ` · AI ${active.archetype}` : ""}.
-        </div>
-        <div>Round {game.turn.roundNumber} · turn {game.turn.turnNumber} · {game.turn.phase}</div>
+      <div style={{ fontSize: 11, color: "var(--ink-dim)" }}>
+        <div>Round {game.turn.roundNumber} · turn {game.turn.turnNumber} · phase {game.turn.phase}</div>
+        <div style={{ marginTop: 4 }}>Watch the map — the bot is making its move.</div>
       </div>
     );
   }
@@ -120,61 +153,66 @@ export function ActionPanel({
     const canPlace = !!selected && isMine(selected) && reinforceCount >= 1 && reinforceCount <= remaining;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ fontSize: 11 }}>
-          Reinforcements remaining: <b style={{ color: "var(--neon)" }}>{remaining}</b>
+        <div className="kv">
+          <span className="k">reinforcements</span>
+          <span className="v neon" style={{ fontWeight: 600 }}>{remaining}</span>
         </div>
         <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
-          Click one of your countries on the map, set count, place.
+          Click one of your countries on the map, then place.
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span className="label" style={{ margin: 0 }}>count</span>
-          <input
-            type="number"
-            min={1}
-            max={remaining}
-            className="input"
-            style={{ width: 70, padding: "4px 6px" }}
-            value={reinforceCount}
-            onChange={(e) => setReinforceCount(Number(e.target.value))}
-          />
-          <button
-            type="button"
-            className="btn btn-good"
-            style={{ padding: "4px 10px", fontSize: 10 }}
-            disabled={!canPlace}
-            onClick={async () => {
-              if (!selected) return;
-              const r = await placeReinforcements({
-                variables: {
-                  gameId: game.gameId,
-                  placements: [{ countryId: selected.countryId, count: reinforceCount }],
-                },
-              });
-              handle(r.data?.placeReinforcements);
-            }}
-          >
-            Place
-          </button>
-        </div>
-        {selected && (
-          <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
-            Target: <code style={{ color: "var(--neon)" }}>{selected.countryId}</code> ({selected.armies}a)
+        <div className="subform">
+          <div className="row">
+            <span className="label" style={{ margin: 0 }}>target</span>
+            <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountryId ?? "—"}</code>
           </div>
-        )}
+          <div className="row">
+            <span className="label" style={{ margin: 0 }}>count</span>
+            <input
+              type="number"
+              min={1}
+              max={remaining}
+              className="input"
+              style={{ width: 70, padding: "4px 6px" }}
+              value={reinforceCount}
+              onChange={(e) => setReinforceCount(Number(e.target.value))}
+            />
+            <button
+              type="button"
+              className="btn btn-good"
+              style={{ padding: "4px 10px", fontSize: 10, marginLeft: "auto" }}
+              disabled={!canPlace}
+              onClick={async () => {
+                if (!selected) return;
+                const r = await placeReinforcements({
+                  variables: {
+                    gameId: game.gameId,
+                    placements: [{ countryId: selected.countryId, count: reinforceCount }],
+                  },
+                });
+                handle(r.data?.placeReinforcements);
+              }}
+            >
+              Deploy ▸
+            </button>
+          </div>
+        </div>
         {error && <div className="alert">{error}</div>}
       </div>
     );
   }
 
-  // Action phase
+  // Action phase.
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      <div style={{ fontSize: 11 }}>
-        Actions remaining: <b style={{ color: "var(--neon)" }}>{game.turn.actionsRemaining}</b>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div className="kv">
+        <span className="k">actions</span>
+        <span className="v neon" style={{ fontWeight: 600 }}>
+          {game.turn.actionsRemaining} / {game.config.actionsPerTurn}
+        </span>
       </div>
 
       {selected ? (
-        <div className="subform">
+        <div className="subform" style={{ marginTop: 0 }}>
           <div style={{ fontSize: 11, color: "var(--ink)" }}>{selected.countryId}</div>
           <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
             {selected.armies}a · {selected.diseaseCubes} cubes
@@ -183,14 +221,24 @@ export function ActionPanel({
           </div>
         </div>
       ) : (
-        <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>Click a country on the map to target.</div>
+        <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
+          Click a country on the map to pick a target.
+        </div>
       )}
 
+      <div className="section-hd">researcher</div>
       <div className="action-grid">
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={!selected || !myPlayer.researcherCountryId || !adjacentToMyResearcher.has(selected.countryId)}
+        <ActionTile
+          glyph="↦"
+          label="Move"
+          cost={1}
+          hint="Move your researcher to an adjacent country"
+          disabled={
+            !selected ||
+            !myPlayer.researcherCountryId ||
+            !adjacentToMyResearcher.has(selected.countryId) ||
+            game.turn.actionsRemaining < 1
+          }
           onClick={async () => {
             if (!selected) return;
             const r = await moveResearcher({
@@ -198,12 +246,12 @@ export function ActionPanel({
             });
             handle(r.data?.moveResearcher);
           }}
-        >
-          Move researcher · 1
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
+        />
+        <ActionTile
+          glyph="✈"
+          label="Airdrop"
+          cost={2}
+          hint="Move your researcher to any country on the map"
           disabled={!selected || !myPlayer.researcherCountryId || game.turn.actionsRemaining < 2}
           onClick={async () => {
             if (!selected) return;
@@ -212,43 +260,45 @@ export function ActionPanel({
             });
             handle(r.data?.airdropResearcher);
           }}
-        >
-          Airdrop · 2
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={!researcherHere || (myResearcherState?.diseaseCubes ?? 0) === 0}
+        />
+        <ActionTile
+          glyph="✚"
+          label="Cure"
+          cost={1}
+          hint="Remove all disease cubes from the researcher's country"
+          variant="good"
+          disabled={
+            !researcherHere ||
+            (myResearcherState?.diseaseCubes ?? 0) === 0 ||
+            game.turn.actionsRemaining < 1
+          }
           onClick={async () => {
             const r = await cure({ variables: { gameId: game.gameId } });
             handle(r.data?.cure);
           }}
-        >
-          Cure · 1
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          disabled={!researcherHere}
+        />
+        <ActionTile
+          glyph="⚕"
+          label="Vaccine"
+          cost={1}
+          hint="Permanently immunize the researcher's country (all researchers must co-locate)"
+          variant="good"
+          disabled={!researcherHere || game.turn.actionsRemaining < 1}
           onClick={async () => {
             const r = await createVaccine({ variables: { gameId: game.gameId } });
             handle(r.data?.createVaccine);
           }}
-        >
-          Vaccine · 1
-        </button>
+        />
       </div>
 
-      <div className="subform">
-        <div className="section-hd" style={{ margin: 0, padding: 0, border: 0 }}>
-          attack / move
-        </div>
+      <div className="section-hd">military</div>
+      <div className="subform" style={{ marginTop: 0 }}>
         <div className="row">
-          <span className="label" style={{ margin: 0 }}>source</span>
+          <span className="label" style={{ margin: 0 }}>from</span>
           <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountryId ?? "—"}</code>
         </div>
         <div className="row">
-          <span className="label" style={{ margin: 0 }}>target</span>
+          <span className="label" style={{ margin: 0 }}>to</span>
           <select
             className="select"
             value={attackTarget}
@@ -272,12 +322,14 @@ export function ActionPanel({
             onChange={(e) => setArmiesInput(Number(e.target.value))}
           />
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            type="button"
-            className="btn btn-bad"
-            style={{ padding: "4px 10px", fontSize: 10, flex: 1 }}
-            disabled={!selected || !attackTarget || !isMine(selected)}
+        <div className="action-grid">
+          <ActionTile
+            glyph="⚔"
+            label="Attack"
+            cost={1}
+            hint="Send armies into an adjacent enemy country"
+            variant="bad"
+            disabled={!selected || !attackTarget || !isMine(selected) || game.turn.actionsRemaining < 1}
             onClick={async () => {
               if (!selected || !attackTarget) return;
               const r = await attack({
@@ -290,18 +342,18 @@ export function ActionPanel({
               });
               handle(r.data?.attack);
             }}
-          >
-            Attack · 1
-          </button>
-          <button
-            type="button"
-            className="btn"
-            style={{ padding: "4px 10px", fontSize: 10, flex: 1 }}
+          />
+          <ActionTile
+            glyph="⇆"
+            label="Move"
+            cost={1}
+            hint="Reinforce an adjacent country you already own"
             disabled={
               !selected ||
               !attackTarget ||
               !isMine(selected) ||
-              !isMine(stateById.get(attackTarget) ?? null)
+              !isMine(stateById.get(attackTarget) ?? null) ||
+              game.turn.actionsRemaining < 1
             }
             onClick={async () => {
               if (!selected || !attackTarget) return;
@@ -315,17 +367,15 @@ export function ActionPanel({
               });
               handle(r.data?.moveTroops);
             }}
-          >
-            Move · 1
-          </button>
+          />
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 6, justifyContent: "space-between" }}>
+      <div style={{ display: "flex", gap: 6, justifyContent: "space-between", marginTop: 4 }}>
         <button
           type="button"
           className="btn btn-ghost"
-          style={{ padding: "4px 10px", fontSize: 10 }}
+          style={{ padding: "5px 10px", fontSize: 10 }}
           onClick={() => setSelectedCountryId(null)}
         >
           Clear
@@ -333,7 +383,7 @@ export function ActionPanel({
         <button
           type="button"
           className="btn"
-          style={{ padding: "4px 10px", fontSize: 10 }}
+          style={{ padding: "5px 12px", fontSize: 10 }}
           onClick={async () => {
             const r = await endTurn({ variables: { gameId: game.gameId } });
             handle(r.data?.endTurn);

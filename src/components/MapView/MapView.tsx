@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type {
   ConquestMap,
   CountryState,
@@ -6,33 +6,19 @@ import type {
   Tile,
 } from "@/api/types";
 import { TILE_PX, drawTile } from "@/lib/biomes";
-
-const ZOOM_MIN = 0.4;
-const ZOOM_MAX = 3.5;
+import { drawBiohazard, drawCapitalStar, drawResearcher, drawSoldier } from "@/lib/sprites";
+import { clampView, type View, ZOOM_MIN, ZOOM_MAX } from "@/lib/view";
 
 interface Props {
   map: ConquestMap;
   countryStates: CountryState[];
   players: Player[];
+  view: View;
+  setView: (next: View | ((prev: View) => View)) => void;
   selectedCountryId?: string | null;
   onCountryClick?: (countryId: string) => void;
   onCountryHover?: (countryId: string | null) => void;
-}
-
-interface View {
-  panX: number;
-  panY: number;
-  zoom: number;
-}
-
-function clampView(v: View, viewW: number, viewH: number, canvasW: number, canvasH: number): View {
-  const cw = canvasW * v.zoom;
-  const ch = canvasH * v.zoom;
-  const panX =
-    cw <= viewW ? (viewW - cw) / 2 : Math.max(viewW - cw, Math.min(0, v.panX));
-  const panY =
-    ch <= viewH ? (viewH - ch) / 2 : Math.max(viewH - ch, Math.min(0, v.panY));
-  return { ...v, panX, panY };
+  onViewportSize?: (w: number, h: number) => void;
 }
 
 function buildOutlinePaths(
@@ -43,10 +29,6 @@ function buildOutlinePaths(
   coast: Path2D;
   byCountry: Map<string, Path2D>;
 } {
-  // For each land tile, emit each of its four edges that face an ocean tile
-  // (coast) or a tile owned by a different country (border). Coast and per-
-  // country borders go into separate Path2Ds so we can stroke coastlines in
-  // neon cyan and country outlines in the owner's color.
   const coast = new Path2D();
   const byCountry = new Map<string, Path2D>();
   function ensure(cid: string): Path2D {
@@ -76,8 +58,6 @@ function buildOutlinePaths(
       } else if (top.countryId !== cid) {
         cp.moveTo(px, py + 0.5);
         cp.lineTo(px + TILE_PX, py + 0.5);
-      } else {
-        // shared edge with same country — no outline needed
       }
       if (!bot || bot.terrain === "ocean") {
         coast.moveTo(px, py + TILE_PX - 0.5);
@@ -109,9 +89,12 @@ export function MapView({
   map,
   countryStates,
   players,
+  view,
+  setView,
   selectedCountryId,
   onCountryClick,
   onCountryHover,
+  onViewportSize,
 }: Props): JSX.Element {
   const canvasW = map.width * TILE_PX;
   const canvasH = map.height * TILE_PX;
@@ -122,10 +105,8 @@ export function MapView({
   const dragRef = useRef<{ sx: number; sy: number; px: number; py: number; moved: boolean } | null>(
     null
   );
-  const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
-  const [hover, setHover] = useState<string | null>(null);
+  const hoverRef = useRef<string | null>(null);
 
-  // 2D tile lookup for outline building + click hit-testing.
   const tilesByXY = useMemo(() => {
     const grid: (Tile | null)[][] = [];
     for (let x = 0; x < map.width; x++) grid.push(new Array(map.height).fill(null));
@@ -150,8 +131,7 @@ export function MapView({
     return m;
   }, [countryStates]);
 
-  // (Re)build the static base layer when the map itself changes. Cheap because
-  // it only needs to redraw on map regeneration, not on every game tick.
+  // Static base layer — recomputed only when the map itself changes.
   useEffect(() => {
     const base = document.createElement("canvas");
     base.width = canvasW;
@@ -162,23 +142,21 @@ export function MapView({
     baseLayerRef.current = base;
   }, [map, canvasW, canvasH]);
 
-  // Center the world the first time we know the viewport size.
+  // Report viewport size to parent (for the minimap viewport rectangle).
   useEffect(() => {
     const wrap = wrapRef.current;
-    if (!wrap) return;
-    const r = wrap.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) return;
-    const fit = Math.min(r.width / canvasW, r.height / canvasH);
-    const z = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fit * 0.95));
-    setView({
-      panX: (r.width - canvasW * z) / 2,
-      panY: (r.height - canvasH * z) / 2,
-      zoom: z,
-    });
-  }, [canvasW, canvasH, map.mapId]);
+    if (!wrap || !onViewportSize) return;
+    const update = (): void => {
+      const r = wrap.getBoundingClientRect();
+      onViewportSize(r.width, r.height);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [onViewportSize]);
 
-  // Animation loop — composites the static base, owner-colored country borders,
-  // neon coastlines, hover/selected pulse, and the floating disease counters.
+  // Animation loop — overlays + sprites + hover/select pulse.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -191,7 +169,7 @@ export function MapView({
       const base = baseLayerRef.current;
       if (base) ctx.drawImage(base, 0, 0);
 
-      // Country borders coloured by owner, with a soft glow underneath.
+      // Country borders coloured by owner with a soft glow.
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -213,7 +191,7 @@ export function MapView({
       }
       ctx.restore();
 
-      // Coastlines — neon cyan glow then sharp white-cyan inner line.
+      // Coastlines.
       ctx.save();
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -228,10 +206,11 @@ export function MapView({
       ctx.stroke(outlines.coast);
       ctx.restore();
 
-      // Hover / selected pulse — owner colour, pulses with sin wave.
+      // Hover / selected pulses.
       const targets: { id: string; kind: "hover" | "selected" }[] = [];
       if (selectedCountryId) targets.push({ id: selectedCountryId, kind: "selected" });
-      if (hover && hover !== selectedCountryId) targets.push({ id: hover, kind: "hover" });
+      if (hoverRef.current && hoverRef.current !== selectedCountryId)
+        targets.push({ id: hoverRef.current, kind: "hover" });
       const pulse = 0.5 + 0.5 * Math.sin(now * 0.005);
       for (const tgt of targets) {
         const path = outlines.byCountry.get(tgt.id);
@@ -262,9 +241,7 @@ export function MapView({
         ctx.restore();
       }
 
-      // Disease counters — floating box anchored at country centroid.
-      // Renders armies on the left and a biohazard glyph + cube count on the
-      // right. Severity-coded: green / yellow / red as cubes climb.
+      // Floating country badges with animated army + disease sprites.
       drawCountryBadges(ctx, map, stateByCountry, playerColorById, now);
 
       raf = requestAnimationFrame(render);
@@ -279,10 +256,9 @@ export function MapView({
     stateByCountry,
     playerColorById,
     selectedCountryId,
-    hover,
   ]);
 
-  // Hit-testing in canvas coordinates.
+  // Hit-test point → tile.
   function pointToTile(clientX: number, clientY: number): Tile | null {
     const wrap = wrapRef.current;
     if (!wrap) return null;
@@ -327,8 +303,8 @@ export function MapView({
     }
     const tile = pointToTile(e.clientX, e.clientY);
     const cid = tile?.countryId ?? null;
-    if (cid !== hover) {
-      setHover(cid);
+    if (cid !== hoverRef.current) {
+      hoverRef.current = cid;
       onCountryHover?.(cid);
     }
   }
@@ -343,8 +319,8 @@ export function MapView({
   function onMouseLeave(): void {
     dragRef.current = null;
     wrapRef.current?.classList.remove("dragging");
-    if (hover) {
-      setHover(null);
+    if (hoverRef.current) {
+      hoverRef.current = null;
       onCountryHover?.(null);
     }
   }
@@ -424,111 +400,116 @@ function drawCountryBadges(
 ): void {
   for (const c of map.countries) {
     const state = stateByCountry.get(c.countryId);
-    const armies = state?.armies ?? 0;
-    const cubes = state?.diseaseCubes ?? 0;
-    const cap = !!state?.isCapitalOf;
-    const researcherPid = state?.hasResearcher ?? null;
-    const vacc = state?.vaccinated;
+    if (!state) continue;
+    const armies = state.armies ?? 0;
+    const cubes = state.diseaseCubes ?? 0;
+    const cap = !!state.isCapitalOf;
+    const researcherPid = state.hasResearcher ?? null;
+    const vacc = state.vaccinated;
     if (armies === 0 && cubes === 0 && !cap && !researcherPid) continue;
+
+    const ownerColor = state.ownerPlayerId
+      ? playerColorById.get(state.ownerPlayerId) ?? "#aab8c4"
+      : "#aab8c4";
 
     const cx = (c.centroidX + 0.5) * TILE_PX;
     const cy = (c.centroidY + 0.5) * TILE_PX;
-    const armyText = armies > 0 ? String(armies) : "·";
-    const cubeText = String(cubes);
-    const wide = armies >= 100 || cubes >= 10;
-    const w = wide ? 70 : 56;
-    const h = 22;
+
+    // Badge geometry — wider when counts grow into 2 digits.
+    const w = armies >= 100 || cubes >= 10 ? 60 : 48;
+    const h = 18;
     const x0 = cx - w / 2;
-    const y0 = cy - h - 6;
+    const y0 = cy - h - 8;
 
     ctx.save();
+
+    // Drop shadow.
     ctx.shadowColor = "rgba(0,0,0,0.7)";
-    ctx.shadowBlur = 10;
+    ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 2;
     ctx.fillStyle = "#0d0f0a";
-    roundRect(ctx, x0, y0, w, h, 5);
+    roundRect(ctx, x0, y0, w, h, 4);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    const inset = 1.5;
     ctx.fillStyle = "#1a1d12";
-    roundRect(ctx, x0 + inset, y0 + inset, w - inset * 2, h - inset * 2, 4);
+    roundRect(ctx, x0 + 1, y0 + 1, w - 2, h - 2, 3.2);
     ctx.fill();
 
-    // Severity accent on the right based on cube count (0-3).
+    // Severity-coded right-half border, pulsing at high cube counts.
     const sev = Math.min(1, cubes / 3);
-    const accent = sev < 0.34 ? "#9be15d" : sev < 0.67 ? "#e8c547" : "#e85b3a";
+    const accent = cubes === 0
+      ? "rgba(91,227,255,0.4)"
+      : sev < 0.4
+        ? "#9be15d"
+        : sev < 0.7
+          ? "#e8c547"
+          : "#e85b3a";
     let pulse = 1;
-    if (cubes >= 2) pulse = 1 + 0.18 * Math.sin(now / 160);
-    ctx.strokeStyle = cubes > 0 ? accent : "rgba(91,227,255,0.55)";
-    ctx.lineWidth = 1.2 * pulse;
-    roundRect(ctx, x0 + 0.6, y0 + 0.6, w - 1.2, h - 1.2, 4);
+    if (cubes >= 2) pulse = 1 + 0.15 * Math.sin(now / 160);
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1 * pulse;
+    roundRect(ctx, x0 + 0.5, y0 + 0.5, w - 1, h - 1, 3.6);
     ctx.stroke();
 
-    // Divider between armies and cubes.
-    ctx.fillStyle = "rgba(91,227,255,0.18)";
-    ctx.fillRect(x0 + w / 2, y0 + 4, 1, h - 8);
+    // Divider.
+    ctx.fillStyle = "rgba(91,227,255,0.2)";
+    ctx.fillRect(x0 + w / 2, y0 + 3, 1, h - 6);
 
-    // Armies (left half).
-    ctx.fillStyle = "#f4f7e8";
-    ctx.font = "bold 11px ui-monospace, JetBrains Mono, Menlo, monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(armyText, x0 + w / 4, y0 + h / 2 + 0.5);
+    // --- Left half: animated soldier sprite + count -------------
+    if (armies > 0) {
+      const phaseSeed = ((c.countryId.charCodeAt(0) ?? 0) + (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
+      drawSoldier(ctx, x0 + 4, y0 + 5, ownerColor, now, phaseSeed);
+      ctx.fillStyle = "#f4f7e8";
+      ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(armies), x0 + 12, y0 + h / 2 + 0.5);
+    } else {
+      ctx.fillStyle = "rgba(216,230,242,0.18)";
+      ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("·", x0 + w / 4, y0 + h / 2 + 0.5);
+    }
 
-    // Cubes (right half).
-    ctx.fillStyle = cubes > 0 ? accent : "#3d4030";
-    ctx.fillText(cubeText, x0 + (3 * w) / 4, y0 + h / 2 + 0.5);
+    // --- Right half: animated biohazard + count -----------------
+    if (cubes > 0) {
+      const phaseSeed = c.countryId.length * 13;
+      drawBiohazard(ctx, x0 + w / 2 + 3, y0 + 5, accent, now, phaseSeed);
+      ctx.fillStyle = accent;
+      ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(cubes), x0 + w / 2 + 13, y0 + h / 2 + 0.5);
+    } else {
+      ctx.fillStyle = "rgba(216,230,242,0.18)";
+      ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("·", x0 + (3 * w) / 4, y0 + h / 2 + 0.5);
+    }
 
     ctx.restore();
 
-    // Capital marker — small star on the centroid.
-    if (cap) {
-      ctx.save();
-      ctx.fillStyle = "#facc15";
-      ctx.shadowColor = "#facc15";
-      ctx.shadowBlur = 6;
-      drawStar(ctx, cx, cy + 4, 3.5);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Researcher dot — coloured by owning player.
+    // Capital + researcher + vaccinated overlays sit ON the centroid tile,
+    // not in the badge — keeps the badge legible and the country state at-a-glance.
+    if (cap) drawCapitalStar(ctx, cx, cy + 6, now);
     if (researcherPid) {
       const col = playerColorById.get(researcherPid) ?? "#ffffff";
-      ctx.save();
-      ctx.shadowColor = col;
-      ctx.shadowBlur = 6;
-      ctx.fillStyle = col;
-      ctx.beginPath();
-      ctx.arc(cx + 8, cy + 4, 2.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
+      drawResearcher(ctx, cx + 9, cy + 6, col, now);
     }
-
-    // Vaccinated halo.
     if (vacc) {
       ctx.save();
-      ctx.strokeStyle = "#34d399";
+      ctx.strokeStyle = "rgba(52, 211, 153, 0.85)";
+      ctx.shadowColor = "rgba(52, 211, 153, 0.65)";
+      ctx.shadowBlur = 4;
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy + 4, 7, 0, Math.PI * 2);
+      ctx.arc(cx, cy + 6, 8, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
   }
-}
-
-function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const ang = -Math.PI / 2 + (i * Math.PI) / 5;
-    const rad = i % 2 === 0 ? r : r / 2.2;
-    const x = cx + Math.cos(ang) * rad;
-    const y = cy + Math.sin(ang) * rad;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  }
-  ctx.closePath();
 }
