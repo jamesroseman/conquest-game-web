@@ -79,6 +79,7 @@ export interface Path {
 export interface Country {
   countryId: string;
   name: string;
+  tag: string;
   continentId: string;
   centroidX: number;
   centroidY: number;

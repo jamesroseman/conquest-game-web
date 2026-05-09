@@ -86,10 +86,18 @@ export function SetupScreen({ state }: Props): JSX.Element {
     }
   }
 
+  // Risk-style claim rule: until every country has at least one owner, a
+  // player can only place on UNCLAIMED countries. Once everything's
+  // claimed, placement switches to reinforcing your own.
+  const unclaimedCount = countryStates.filter((s) => s.ownerPlayerId === null).length;
+  const stillClaiming = unclaimedCount > 0;
   const phaseLabel = (() => {
     switch (game.setup.phase) {
       case "troops":
-        return `Place a troop · ${myPlayer?.troopsRemainingToPlace ?? 0} left for you`;
+        if (stillClaiming) {
+          return `Claim a country · ${unclaimedCount} unclaimed · ${myPlayer?.troopsRemainingToPlace ?? 0} troops left`;
+        }
+        return `Reinforce a country you own · ${myPlayer?.troopsRemainingToPlace ?? 0} troops left`;
       case "researchers":
         return "Place your researcher on a country you own";
       case "capitals":

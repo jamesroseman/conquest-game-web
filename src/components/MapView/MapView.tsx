@@ -23,6 +23,11 @@ interface Props {
   view: View;
   setView: (next: View | ((prev: View) => View)) => void;
   selectedCountryId?: string | null;
+  // When the user enters a click-to-target mode (attack/move), the parent
+  // passes the set of valid target country ids — MapView paints them with
+  // an animated amber ring so the player can see at a glance where they
+  // can click.
+  highlightedIds?: Set<string> | null;
   onCountryClick?: (countryId: string) => void;
   onCountryHover?: (countryId: string | null) => void;
   onViewportSize?: (w: number, h: number) => void;
@@ -101,6 +106,7 @@ export function MapView({
   view,
   setView,
   selectedCountryId,
+  highlightedIds,
   onCountryClick,
   onCountryHover,
   onViewportSize,
@@ -135,6 +141,12 @@ export function MapView({
     for (const s of countryStates) m.set(s.countryId, s);
     return m;
   }, [countryStates]);
+
+  const countryById = useMemo(() => {
+    const m = new Map<string, (typeof map.countries)[number]>();
+    for (const c of map.countries) m.set(c.countryId, c);
+    return m;
+  }, [map]);
 
   // Static base layer — iso tiles painted in painter's order plus the wood
   // frame. Re-rendered only on map change.
@@ -221,6 +233,53 @@ export function MapView({
       ctx.stroke(outlines.coast);
       ctx.restore();
 
+      // Sea paths — dashed neon arcs from one country's centroid to its
+      // sea-path neighbour's. Land paths are NOT drawn (adjacent countries
+      // are obvious from their shared border), but cross-ocean adjacency
+      // would otherwise be invisible.
+      ctx.save();
+      ctx.setLineDash([6, 5]);
+      ctx.lineCap = "round";
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = "rgba(91,227,255,0.6)";
+      ctx.shadowBlur = 6;
+      ctx.strokeStyle = "rgba(170,230,255,0.85)";
+      const dashPhase = (now / 80) % 11;
+      ctx.lineDashOffset = -dashPhase;
+      for (const p of map.paths) {
+        if (p.kind !== "sea") continue;
+        const a = countryById.get(p.countryAId);
+        const b = countryById.get(p.countryBId);
+        if (!a || !b) continue;
+        const A = isoPos(iso, a.centroidX, a.centroidY, 0);
+        const B = isoPos(iso, b.centroidX, b.centroidY, 0);
+        ctx.beginPath();
+        ctx.moveTo(A.cx, A.cy + TH / 2);
+        ctx.lineTo(B.cx, B.cy + TH / 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Click-to-target highlights — amber dashed ring, walks with time so
+      // the eye is drawn to it.
+      if (highlightedIds && highlightedIds.size > 0) {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.setLineDash([5, 4]);
+        ctx.lineDashOffset = -((now / 60) % 9);
+        const amberPulse = 0.55 + 0.45 * Math.sin(now * 0.006);
+        ctx.shadowColor = "rgba(255,180,84,0.65)";
+        ctx.shadowBlur = 10 + amberPulse * 8;
+        ctx.strokeStyle = "rgba(255,200,120,0.95)";
+        ctx.lineWidth = 1.6;
+        for (const id of highlightedIds) {
+          const path = outlines.byCountry.get(id);
+          if (path) ctx.stroke(path);
+        }
+        ctx.restore();
+      }
+
       // Hover / selected pulses.
       const targets: { id: string; kind: "hover" | "selected" }[] = [];
       if (selectedCountryId) targets.push({ id: selectedCountryId, kind: "selected" });
@@ -263,7 +322,7 @@ export function MapView({
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [iso, map, tilesByXY, outlines, stateByCountry, playerColorById, selectedCountryId]);
+  }, [iso, map, tilesByXY, outlines, stateByCountry, playerColorById, selectedCountryId, highlightedIds, countryById]);
 
   // Hit-testing — point in canvas-local pixels → tile.
   function pointToTile(clientX: number, clientY: number): Tile | null {
@@ -431,22 +490,45 @@ function drawCountryBadges(
 
     const w = armies >= 100 || cubes >= 10 ? 64 : 52;
     const h = 20;
+    const tagH = 11;
+    const tagW = Math.min(w - 8, c.tag.length * 7 + 8);
     const x0 = anchorX - w / 2;
-    const y0 = anchorY - h - 18;
+    // Pull the badge a little higher so the tag chip sits above it.
+    const y0 = anchorY - h - 18 - tagH + 2;
 
+    // Body sits below the tag chip.
+    const bodyY = y0 + tagH;
     ctx.save();
     ctx.shadowColor = "rgba(0,0,0,0.7)";
     ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 2;
     ctx.fillStyle = "#0d0f0a";
-    roundRect(ctx, x0, y0, w, h, 4);
+    roundRect(ctx, x0, bodyY, w, h, 4);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
     ctx.fillStyle = "#1a1d12";
-    roundRect(ctx, x0 + 1, y0 + 1, w - 2, h - 2, 3.2);
+    roundRect(ctx, x0 + 1, bodyY + 1, w - 2, h - 2, 3.2);
     ctx.fill();
+
+    // Tag chip — short identifier ("A1", "B3") so a player can refer
+    // to a country verbally without reading the procedural name. Sits on
+    // top of the body, owner-coloured outline.
+    const tagX = anchorX - tagW / 2;
+    const tagY = y0;
+    ctx.fillStyle = "#0d0f0a";
+    roundRect(ctx, tagX, tagY, tagW, tagH, 3);
+    ctx.fill();
+    ctx.strokeStyle = ownerColor;
+    ctx.lineWidth = 1;
+    roundRect(ctx, tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1, 2.6);
+    ctx.stroke();
+    ctx.fillStyle = "#f4f7e8";
+    ctx.font = "bold 8px ui-monospace, JetBrains Mono, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(c.tag, anchorX, tagY + tagH / 2 + 0.5);
 
     const sev = Math.min(1, cubes / 3);
     const accent = cubes === 0
@@ -460,44 +542,44 @@ function drawCountryBadges(
     if (cubes >= 2) pulse = 1 + 0.15 * Math.sin(now / 160);
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1 * pulse;
-    roundRect(ctx, x0 + 0.5, y0 + 0.5, w - 1, h - 1, 3.6);
+    roundRect(ctx, x0 + 0.5, bodyY + 0.5, w - 1, h - 1, 3.6);
     ctx.stroke();
 
     ctx.fillStyle = "rgba(91,227,255,0.18)";
-    ctx.fillRect(x0 + w / 2, y0 + 4, 1, h - 8);
+    ctx.fillRect(x0 + w / 2, bodyY + 4, 1, h - 8);
 
     if (armies > 0) {
       const phaseSeed =
         ((c.countryId.charCodeAt(0) ?? 0) +
           (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
-      drawSoldier(ctx, x0 + 4, y0 + 5, ownerColor, now, phaseSeed);
+      drawSoldier(ctx, x0 + 4, bodyY + 5, ownerColor, now, phaseSeed);
       ctx.fillStyle = "#f4f7e8";
       ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(armies), x0 + 13, y0 + h / 2 + 0.5);
+      ctx.fillText(String(armies), x0 + 13, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
       ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("·", x0 + w / 4, y0 + h / 2 + 0.5);
+      ctx.fillText("·", x0 + w / 4, bodyY + h / 2 + 0.5);
     }
 
     if (cubes > 0) {
       const phaseSeed = c.countryId.length * 13;
-      drawBiohazard(ctx, x0 + w / 2 + 4, y0 + 5, accent, now, phaseSeed);
+      drawBiohazard(ctx, x0 + w / 2 + 4, bodyY + 5, accent, now, phaseSeed);
       ctx.fillStyle = accent;
       ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(cubes), x0 + w / 2 + 14, y0 + h / 2 + 0.5);
+      ctx.fillText(String(cubes), x0 + w / 2 + 14, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
       ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText("·", x0 + (3 * w) / 4, y0 + h / 2 + 0.5);
+      ctx.fillText("·", x0 + (3 * w) / 4, bodyY + h / 2 + 0.5);
     }
 
     ctx.restore();

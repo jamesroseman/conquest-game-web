@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation } from "@apollo/client";
 import {
   AIRDROP_RESEARCHER_MUTATION,
@@ -11,6 +11,7 @@ import {
   PLACE_REINFORCEMENTS_MUTATION,
 } from "@/api/operations";
 import type {
+  Country,
   CountryState,
   GameStateView,
   Player,
@@ -18,11 +19,21 @@ import type {
   TilePlacementInput,
 } from "@/api/types";
 
+export type TargetMode = "attack" | "move" | null;
+
 interface Props {
   state: GameStateView;
   myPlayer: Player | null;
   selectedCountryId: string | null;
   setSelectedCountryId: (id: string | null) => void;
+  // The parent owns target-mode state so it can also pass the highlighted
+  // ids down to MapView and route map clicks through MapView →
+  // setTargetMode/onResolveTarget.
+  targetMode: TargetMode;
+  setTargetMode: (m: TargetMode) => void;
+  // Imperative handle the parent fills in once mutations exist; ActionPanel
+  // calls back with the chosen target so the parent can dispatch.
+  onResolveTarget?: (targetCountryId: string, armies: number) => void;
 }
 
 function neighborIds(state: GameStateView, countryId: string): Set<string> {
@@ -35,7 +46,7 @@ function neighborIds(state: GameStateView, countryId: string): Set<string> {
   return result;
 }
 
-interface ActionButtonProps {
+interface ActionTileProps {
   glyph: string;
   label: string;
   cost: number;
@@ -43,10 +54,9 @@ interface ActionButtonProps {
   onClick?: () => void | Promise<void>;
   variant?: "default" | "good" | "bad";
   hint?: string;
+  active?: boolean;
 }
 
-// Reusable action tile — pixel-art glyph on the left, label + cost stacked on
-// the right. Disabled state dims everything; enabled state pulses the glyph.
 function ActionTile({
   glyph,
   label,
@@ -55,14 +65,15 @@ function ActionTile({
   onClick,
   variant = "default",
   hint,
-}: ActionButtonProps): JSX.Element {
+  active,
+}: ActionTileProps): JSX.Element {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => void onClick?.()}
       title={hint}
-      className={`action-tile action-tile-${variant}${disabled ? " is-disabled" : ""}`}
+      className={`action-tile action-tile-${variant}${disabled ? " is-disabled" : ""}${active ? " is-active" : ""}`}
     >
       <span className="ag" aria-hidden>
         {glyph}
@@ -80,24 +91,41 @@ export function ActionPanel({
   myPlayer,
   selectedCountryId,
   setSelectedCountryId,
+  targetMode,
+  setTargetMode,
 }: Props): JSX.Element {
   const { game, countryStates } = state;
   const stateById = useMemo(
     () => new Map(countryStates.map((s) => [s.countryId, s] as const)),
     [countryStates]
   );
+  const countryById = useMemo(() => {
+    const m = new Map<string, Country>();
+    if (state.map) for (const c of state.map.countries) m.set(c.countryId, c);
+    return m;
+  }, [state.map]);
+
   const selected = selectedCountryId ? stateById.get(selectedCountryId) ?? null : null;
   const isMyTurn = !!myPlayer && game.turn.activePlayerId === myPlayer.playerId;
 
   const [error, setError] = useState<string | null>(null);
   const [reinforceCount, setReinforceCount] = useState<number>(1);
-  const [armiesInput, setArmiesInput] = useState<number>(1);
-  const [attackTarget, setAttackTarget] = useState<string>("");
+  const [armiesToCommit, setArmiesToCommit] = useState<number>(1);
+
+  // Reset target mode whenever the underlying selection changes — entering
+  // attack/move while pointing at a new source from a stale click is a
+  // common foot-gun.
+  useEffect(() => {
+    setTargetMode(null);
+  }, [selectedCountryId, setTargetMode]);
 
   function handle(result: StateMutationResult | undefined): void {
     if (!result) return;
     if (result.__typename === "GameError") setError(result.message);
-    else setError(null);
+    else {
+      setError(null);
+      setTargetMode(null);
+    }
   }
 
   const [placeReinforcements] = useMutation<
@@ -157,11 +185,12 @@ export function ActionPanel({
   const adjacentToMyResearcher = myPlayer.researcherCountryId
     ? neighborIds(state, myPlayer.researcherCountryId)
     : new Set<string>();
-  const adjacentToSelected = selected ? neighborIds(state, selected.countryId) : new Set<string>();
 
+  // -------- Reinforcement phase --------
   if (game.turn.phase === "reinforcements") {
     const remaining = game.turn.reinforcementsToPlace;
     const canPlace = !!selected && isMine(selected) && reinforceCount >= 1 && reinforceCount <= remaining;
+    const selectedCountry = selected ? countryById.get(selected.countryId) : null;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div className="kv">
@@ -174,7 +203,7 @@ export function ActionPanel({
         <div className="subform">
           <div className="row">
             <span className="label" style={{ margin: 0 }}>target</span>
-            <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountryId ?? "—"}</code>
+            <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountry?.tag ?? "—"}</code>
           </div>
           <div className="row">
             <span className="label" style={{ margin: 0 }}>count</span>
@@ -212,7 +241,133 @@ export function ActionPanel({
     );
   }
 
-  // Action phase.
+  // -------- Click-to-target view (attack / move troops) --------
+  if (targetMode && selected && state.map) {
+    const adjacent = neighborIds(state, selected.countryId);
+    const candidates: Country[] = [];
+    for (const c of state.map.countries) {
+      if (!adjacent.has(c.countryId)) continue;
+      const s = stateById.get(c.countryId);
+      if (!s) continue;
+      if (targetMode === "attack" && s.ownerPlayerId === myPlayer.playerId) continue;
+      if (targetMode === "move" && s.ownerPlayerId !== myPlayer.playerId) continue;
+      candidates.push(c);
+    }
+    const sourceTag = countryById.get(selected.countryId)?.tag ?? selected.countryId;
+    const maxArmies = Math.max(1, selected.armies - 1); // leave at least 1 behind
+
+    const variantClass = targetMode === "attack" ? "btn-bad" : "btn";
+    const verb = targetMode === "attack" ? "Attack" : "Move";
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="kv">
+          <span className="k">{verb.toLowerCase()} from</span>
+          <span className="v neon" style={{ fontWeight: 700, letterSpacing: "0.1em" }}>
+            {sourceTag}
+          </span>
+        </div>
+        <div className="kv">
+          <span className="k">your armies</span>
+          <span className="v">{selected.armies}</span>
+        </div>
+        <div className="row" style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <span className="label" style={{ margin: 0 }}>commit</span>
+          <input
+            type="range"
+            min={1}
+            max={maxArmies}
+            value={Math.min(armiesToCommit, maxArmies)}
+            onChange={(e) => setArmiesToCommit(Number(e.target.value))}
+            style={{ flex: 1 }}
+          />
+          <input
+            type="number"
+            min={1}
+            max={maxArmies}
+            className="input"
+            style={{ width: 60, padding: "4px 6px" }}
+            value={Math.min(armiesToCommit, maxArmies)}
+            onChange={(e) => setArmiesToCommit(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="section-hd">choose target</div>
+        {candidates.length === 0 ? (
+          <div style={{ fontSize: 10, color: "var(--ink-dim)", fontStyle: "italic" }}>
+            {targetMode === "attack"
+              ? "No adjacent enemy countries."
+              : "No adjacent countries you own."}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {candidates.map((c) => {
+              const cs = stateById.get(c.countryId);
+              const owner = cs?.ownerPlayerId
+                ? state.players.find((p) => p.playerId === cs.ownerPlayerId)
+                : null;
+              return (
+                <button
+                  key={c.countryId}
+                  type="button"
+                  className={`target-row ${variantClass}`}
+                  onClick={async () => {
+                    const armies = Math.min(armiesToCommit, maxArmies);
+                    if (targetMode === "attack") {
+                      const r = await attack({
+                        variables: {
+                          gameId: game.gameId,
+                          fromCountryId: selected.countryId,
+                          toCountryId: c.countryId,
+                          armies,
+                        },
+                      });
+                      handle(r.data?.attack);
+                    } else {
+                      const r = await moveTroops({
+                        variables: {
+                          gameId: game.gameId,
+                          fromCountryId: selected.countryId,
+                          toCountryId: c.countryId,
+                          armies,
+                        },
+                      });
+                      handle(r.data?.moveTroops);
+                    }
+                  }}
+                >
+                  <span className="tg" style={{ borderColor: owner?.color ?? "var(--ink-dim)" }}>
+                    {c.tag}
+                  </span>
+                  <span className="al" style={{ flex: 1, textAlign: "left" }}>
+                    <span className="al-name">{c.name}</span>
+                    <span className="al-cost">
+                      {cs?.armies ?? 0}a · {owner ? `seat ${owner.seatOrder + 1}` : "unclaimed"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ marginTop: 6 }}
+          onClick={() => setTargetMode(null)}
+        >
+          Cancel
+        </button>
+
+        {error && <div className="alert">{error}</div>}
+      </div>
+    );
+  }
+
+  // -------- Normal action menu --------
+  const selectedCountryRecord = selected ? countryById.get(selected.countryId) ?? null : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       <div className="kv">
@@ -222,9 +377,18 @@ export function ActionPanel({
         </span>
       </div>
 
-      {selected ? (
+      {selected && selectedCountryRecord ? (
         <div className="subform" style={{ marginTop: 0 }}>
-          <div style={{ fontSize: 11, color: "var(--ink)" }}>{selected.countryId}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span
+              className="tg"
+              style={{ borderColor: "var(--neon)" }}
+              aria-hidden
+            >
+              {selectedCountryRecord.tag}
+            </span>
+            <span style={{ fontSize: 11, color: "var(--ink)" }}>{selectedCountryRecord.name}</span>
+          </div>
           <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
             {selected.armies}a · {selected.diseaseCubes} cubes
             {selected.vaccinated ? " · vaccinated" : ""}
@@ -303,83 +467,24 @@ export function ActionPanel({
       </div>
 
       <div className="section-hd">military</div>
-      <div className="subform" style={{ marginTop: 0 }}>
-        <div className="row">
-          <span className="label" style={{ margin: 0 }}>from</span>
-          <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountryId ?? "—"}</code>
-        </div>
-        <div className="row">
-          <span className="label" style={{ margin: 0 }}>to</span>
-          <select
-            className="select"
-            value={attackTarget}
-            onChange={(e) => setAttackTarget(e.target.value)}
-            style={{ flex: 1, padding: "4px 6px", fontSize: 10 }}
-          >
-            <option value="">— adjacent —</option>
-            {[...adjacentToSelected].map((id) => (
-              <option key={id} value={id}>{id}</option>
-            ))}
-          </select>
-        </div>
-        <div className="row">
-          <span className="label" style={{ margin: 0 }}>armies</span>
-          <input
-            type="number"
-            min={1}
-            className="input"
-            style={{ width: 70, padding: "4px 6px" }}
-            value={armiesInput}
-            onChange={(e) => setArmiesInput(Number(e.target.value))}
-          />
-        </div>
-        <div className="action-grid">
-          <ActionTile
-            glyph="⚔"
-            label="Attack"
-            cost={1}
-            hint="Send armies into an adjacent enemy country"
-            variant="bad"
-            disabled={!selected || !attackTarget || !isMine(selected) || game.turn.actionsRemaining < 1}
-            onClick={async () => {
-              if (!selected || !attackTarget) return;
-              const r = await attack({
-                variables: {
-                  gameId: game.gameId,
-                  fromCountryId: selected.countryId,
-                  toCountryId: attackTarget,
-                  armies: armiesInput,
-                },
-              });
-              handle(r.data?.attack);
-            }}
-          />
-          <ActionTile
-            glyph="⇆"
-            label="Move"
-            cost={1}
-            hint="Reinforce an adjacent country you already own"
-            disabled={
-              !selected ||
-              !attackTarget ||
-              !isMine(selected) ||
-              !isMine(stateById.get(attackTarget) ?? null) ||
-              game.turn.actionsRemaining < 1
-            }
-            onClick={async () => {
-              if (!selected || !attackTarget) return;
-              const r = await moveTroops({
-                variables: {
-                  gameId: game.gameId,
-                  fromCountryId: selected.countryId,
-                  toCountryId: attackTarget,
-                  armies: armiesInput,
-                },
-              });
-              handle(r.data?.moveTroops);
-            }}
-          />
-        </div>
+      <div className="action-grid">
+        <ActionTile
+          glyph="⚔"
+          label="Attack"
+          cost={1}
+          hint="Pick an adjacent enemy country to attack"
+          variant="bad"
+          disabled={!selected || !isMine(selected) || selected.armies < 2 || game.turn.actionsRemaining < 1}
+          onClick={() => setTargetMode("attack")}
+        />
+        <ActionTile
+          glyph="⇆"
+          label="Move troops"
+          cost={1}
+          hint="Reinforce an adjacent country you already own"
+          disabled={!selected || !isMine(selected) || selected.armies < 2 || game.turn.actionsRemaining < 1}
+          onClick={() => setTargetMode("move")}
+        />
       </div>
 
       <div style={{ display: "flex", gap: 6, justifyContent: "space-between", marginTop: 4 }}>

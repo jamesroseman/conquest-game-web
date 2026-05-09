@@ -80,6 +80,7 @@ const MAP_FIELDS = gql`
     countries {
       countryId
       name
+      tag
       continentId
       centroidX
       centroidY

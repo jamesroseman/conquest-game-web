@@ -689,3 +689,65 @@ body::after {
   color: var(--ink-faint);
   text-shadow: none;
 }
+.action-tile.is-active {
+  border-color: rgba(255, 180, 84, 0.6);
+  box-shadow: 0 0 10px rgba(255, 180, 84, 0.35);
+}
+
+/* Target row used in attack/move click-to-target mode. Looks similar to
+   action-tile but with a country-tag chip on the left and a multi-line
+   label/meta on the right. */
+.target-row {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--neon-soft);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.06), rgba(91, 227, 255, 0.0));
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.05s ease;
+}
+.target-row:hover {
+  border-color: rgba(91, 227, 255, 0.55);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.18), rgba(91, 227, 255, 0.04));
+}
+.target-row.btn-bad {
+  border-color: rgba(232, 91, 58, 0.42);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.10), rgba(232, 91, 58, 0));
+}
+.target-row.btn-bad:hover {
+  border-color: rgba(232, 91, 58, 0.7);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.22), rgba(232, 91, 58, 0.04));
+}
+.target-row .al-name {
+  font-size: 11px;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+.target-row .al-cost {
+  font-size: 9px;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+}
+
+/* Country tag chip — short identifier ("A1", "B3"). Used inline in the
+   action panel and the inspector. */
+.tg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  background: #0d0f0a;
+  border: 1px solid var(--neon-soft);
+  border-radius: 2px;
+}

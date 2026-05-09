@@ -3,7 +3,7 @@ import type { GameStateView } from "@/api/types";
 import { MapView } from "@/components/MapView/MapView";
 import { Minimap } from "@/components/Minimap";
 import { PlayerList } from "@/components/PlayerList";
-import { ActionPanel } from "@/components/ActionPanel/ActionPanel";
+import { ActionPanel, type TargetMode } from "@/components/ActionPanel/ActionPanel";
 import { CountryInspector } from "@/components/CountryInspector";
 import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
 import { useMyPlayer } from "@/hooks/useMyPlayer";
@@ -21,9 +21,31 @@ export function GameScreen({ state }: Props): JSX.Element {
   const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
   const [viewport, setViewport] = useState({ w: 1, h: 1 });
+  const [targetMode, setTargetMode] = useState<TargetMode>(null);
   const myPlayer = useMyPlayer(state);
   const { game, players, countryStates, map } = state;
   const lastMapId = useRef<string | null>(null);
+
+  // While in attack/move mode, the parent computes the highlight set and
+  // re-routes map clicks. Highlighted = adjacent enemy (attack) or
+  // adjacent owned (move) countries.
+  const highlightedIds = useMemo<Set<string> | null>(() => {
+    if (!targetMode || !selected || !state.map || !myPlayer) return null;
+    const adjacent = new Set<string>();
+    for (const p of state.map.paths) {
+      if (p.countryAId === selected) adjacent.add(p.countryBId);
+      else if (p.countryBId === selected) adjacent.add(p.countryAId);
+    }
+    const stateById = new Map(state.countryStates.map((s) => [s.countryId, s] as const));
+    const out = new Set<string>();
+    for (const id of adjacent) {
+      const s = stateById.get(id);
+      if (!s) continue;
+      if (targetMode === "attack" && s.ownerPlayerId !== myPlayer.playerId) out.add(id);
+      if (targetMode === "move" && s.ownerPlayerId === myPlayer.playerId) out.add(id);
+    }
+    return out;
+  }, [targetMode, selected, state.map, state.countryStates, myPlayer]);
 
   // Auto-fit the world the first time we know both the viewport size and the
   // map id. Re-runs only on map regeneration, not on every state poll.
@@ -54,7 +76,14 @@ export function GameScreen({ state }: Props): JSX.Element {
             view={view}
             setView={setView}
             selectedCountryId={selected}
-            onCountryClick={(id) => setSelected((prev) => (prev === id ? null : id))}
+            highlightedIds={highlightedIds}
+            onCountryClick={(id) => {
+              // In target mode, leave selection alone — the ActionPanel's
+              // target list owns the click resolution. Selecting a new
+              // country here would silently change the source mid-attack.
+              if (targetMode) return;
+              setSelected((prev) => (prev === id ? null : id));
+            }}
             onCountryHover={setHover}
             onViewportSize={(w, h) => setViewport({ w, h })}
           />
@@ -80,6 +109,8 @@ export function GameScreen({ state }: Props): JSX.Element {
             myPlayer={myPlayer}
             selectedCountryId={selected}
             setSelectedCountryId={setSelected}
+            targetMode={targetMode}
+            setTargetMode={setTargetMode}
           />
         </div>
       </div>

@@ -64,8 +64,21 @@ export function CountryInspector({ hoverCountryId, state }: Props): JSX.Element 
         ) : (
           <>
             <div className="kv">
-              <span className="k">country</span>
-              <span className="v neon">{country.name}</span>
+              <span className="k">tag</span>
+              <span
+                className="v neon"
+                style={{
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  fontSize: 13,
+                }}
+              >
+                {country.tag}
+              </span>
+            </div>
+            <div className="kv">
+              <span className="k">name</span>
+              <span className="v">{country.name}</span>
             </div>
             <div className="kv">
               <span className="k">continent</span>
