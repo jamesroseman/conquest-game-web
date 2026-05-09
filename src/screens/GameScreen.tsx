@@ -166,11 +166,29 @@ export function GameScreen({ state }: Props): JSX.Element {
     return () => clearInterval(id);
   }, []);
 
-  // While in attack/move mode, the parent computes the highlight set and
-  // re-routes map clicks. Highlighted = adjacent enemy (attack) or
-  // adjacent owned (move) countries.
+  // The map highlights candidate countries for whatever the active player
+  // is being asked to pick:
+  //   - Reinforcements phase: every country they own (deploy targets).
+  //   - Attack target mode: adjacent enemy countries.
+  //   - Move target mode: adjacent owned countries.
+  // Returns null when no highlight is appropriate, which MapView treats
+  // as "draw nothing extra".
   const highlightedIds = useMemo<Set<string> | null>(() => {
-    if (!targetMode || !selected || !state.map || !myPlayer) return null;
+    if (!state.map || !myPlayer) return null;
+    const isMyTurn = state.game.turn.activePlayerId === myPlayer.playerId;
+    if (
+      isMyTurn &&
+      state.game.turn.phase === "reinforcements" &&
+      state.game.turn.reinforcementsToPlace > 0 &&
+      !targetMode
+    ) {
+      const out = new Set<string>();
+      for (const s of state.countryStates) {
+        if (s.ownerPlayerId === myPlayer.playerId) out.add(s.countryId);
+      }
+      return out;
+    }
+    if (!targetMode || !selected) return null;
     const adjacent = new Set<string>();
     for (const p of state.map.paths) {
       if (p.countryAId === selected) adjacent.add(p.countryBId);
@@ -185,7 +203,16 @@ export function GameScreen({ state }: Props): JSX.Element {
       if (targetMode === "move" && s.ownerPlayerId === myPlayer.playerId) out.add(id);
     }
     return out;
-  }, [targetMode, selected, state.map, state.countryStates, myPlayer]);
+  }, [
+    targetMode,
+    selected,
+    state.map,
+    state.countryStates,
+    state.game.turn.activePlayerId,
+    state.game.turn.phase,
+    state.game.turn.reinforcementsToPlace,
+    myPlayer,
+  ]);
 
   // Auto-fit the world the first time we know both the viewport size and the
   // map id. Re-runs only on map regeneration, not on every state poll.
