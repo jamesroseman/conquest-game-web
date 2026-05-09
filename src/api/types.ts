@@ -131,6 +131,7 @@ export interface Player {
   eliminated: boolean;
   countriesOwned: number;
   totalArmies: number;
+  cubesCured: number;
 }
 
 export interface SetupState {

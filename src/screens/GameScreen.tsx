@@ -18,6 +18,83 @@ interface Props {
   state: GameStateView;
 }
 
+// Dot-line-dot progress bar where each notch is a past outbreak and the
+// last notch is a skull. When the skull lights up, the game is lost.
+function OutbreakProgress({
+  count,
+  threshold,
+}: {
+  count: number;
+  threshold: number;
+}): JSX.Element {
+  const steps = Math.max(1, threshold);
+  const fillRatio = Math.min(1, count / steps);
+  const tone =
+    fillRatio >= 0.66 ? "var(--bad)" : fillRatio >= 0.33 ? "var(--mid)" : "var(--good)";
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0,
+        marginBottom: 10,
+        padding: "6px 2px",
+      }}
+      title={`${count} of ${threshold} outbreaks until the world is lost.`}
+    >
+      {Array.from({ length: steps }).map((_, i) => {
+        const isSkull = i === steps - 1;
+        const filled = i < count;
+        const dotColor = filled ? tone : "rgba(216,230,242,0.18)";
+        const lineColor = i < count ? tone : "rgba(216,230,242,0.18)";
+        return (
+          <span
+            key={i}
+            style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}
+          >
+            {i > 0 && (
+              <span
+                style={{
+                  flex: 1,
+                  height: 2,
+                  background: lineColor,
+                  boxShadow: filled ? `0 0 6px ${tone}` : "none",
+                }}
+              />
+            )}
+            {isSkull ? (
+              <span
+                aria-hidden
+                style={{
+                  fontSize: 16,
+                  lineHeight: 1,
+                  color: filled ? tone : "rgba(216,230,242,0.35)",
+                  filter: filled ? `drop-shadow(0 0 6px ${tone})` : "none",
+                  marginLeft: i > 0 ? 2 : 0,
+                }}
+              >
+                ☠
+              </span>
+            ) : (
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 999,
+                  background: dotColor,
+                  boxShadow: filled ? `0 0 6px ${tone}` : "none",
+                  marginLeft: i > 0 ? 2 : 0,
+                  marginRight: 2,
+                }}
+              />
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 export function GameScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const [selected, setSelected] = useState<string | null>(null);
@@ -190,38 +267,26 @@ export function GameScreen({ state }: Props): JSX.Element {
       {/* Top-right: live event log so the human can see what bots are doing */}
       <EventLog state={state} />
 
-      {/* Bottom-left: outbreak counter + players */}
+      {/* Bottom-left: outbreak progress + players */}
       <div className="panel panel-fixed" style={{ bottom: 14, left: 14, width: 280 }}>
         <div className="hd">
-          outbreak watch
+          game overview
           <span className="right">
-            {game.outbreakCount}/{game.config.outbreakLossThreshold}
+            outbreaks {game.outbreakCount}/{game.config.outbreakLossThreshold}
           </span>
         </div>
         <div className="bd">
-          <div className="meter" style={{ marginBottom: 8 }}>
-            <i
-              style={{
-                width: `${Math.min(
-                  100,
-                  (game.outbreakCount / game.config.outbreakLossThreshold) * 100
-                )}%`,
-                background:
-                  game.outbreakCount >= game.config.outbreakLossThreshold * 0.66
-                    ? "var(--bad)"
-                    : game.outbreakCount >= game.config.outbreakLossThreshold * 0.33
-                      ? "var(--mid)"
-                      : "var(--good)",
-                boxShadow: "none",
-              }}
-            />
-          </div>
+          <OutbreakProgress
+            count={game.outbreakCount}
+            threshold={game.config.outbreakLossThreshold}
+          />
           <div className="section-hd">players</div>
           <PlayerList
             players={players}
             activePlayerId={game.turn.activePlayerId ?? null}
             ownerUserId={game.ownerUserId}
             myUserId={user?.userId ?? null}
+            countryStates={countryStates}
           />
         </div>
       </div>

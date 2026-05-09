@@ -151,10 +151,19 @@ export function GameLobbyScreen({ state }: Props): JSX.Element {
               type="button"
               className="btn btn-good"
               onClick={onStart}
-              disabled={starting || game.playerCount < game.minPlayers}
+              disabled={starting || game.playerCount < game.maxPlayers}
+              title={
+                game.playerCount < game.maxPlayers
+                  ? `Lobby is ${game.playerCount}/${game.maxPlayers}. Add AI seats or wait for more players.`
+                  : undefined
+              }
               style={{ flex: 1 }}
             >
-              {starting ? "Starting…" : "Start game"}
+              {starting
+                ? "Starting…"
+                : game.playerCount < game.maxPlayers
+                  ? `Start game (${game.playerCount}/${game.maxPlayers})`
+                  : "Start game"}
             </button>
           ) : myPlayer ? (
             <button type="button" className="btn btn-bad" onClick={onLeave}>

@@ -33,7 +33,7 @@ export function EventLog({ state }: Props): JSX.Element {
   }, [state.map]);
 
   const formatted = useMemo(
-    () => recentEvents.map((e) => formatEvent(e, playerLookup, countryTagById)),
+    () => recentEvents.flatMap((e) => formatEvent(e, playerLookup, countryTagById)),
     [recentEvents, playerLookup, countryTagById]
   );
 
@@ -89,7 +89,7 @@ export function EventLog({ state }: Props): JSX.Element {
             <ul className="evlog">
               {formatted.map((row) => (
                 <li
-                  key={row.event.eventId}
+                  key={row.rowId}
                   className={`evrow evrow-${row.kind}`}
                   style={row.color ? { borderLeftColor: row.color } : undefined}
                 >
@@ -113,6 +113,7 @@ export function EventLog({ state }: Props): JSX.Element {
 }
 
 interface FormattedEvent {
+  rowId: string;
   event: GameEvent;
   text: string;
   actorLabel: string | null;
@@ -124,7 +125,7 @@ function formatEvent(
   e: GameEvent,
   players: Map<string, { seat: number; color: string; kind: string }>,
   tags: Map<string, string>
-): FormattedEvent {
+): FormattedEvent[] {
   const actor = e.actorPlayerId ? players.get(e.actorPlayerId) ?? null : null;
   const actorLabel = actor
     ? `seat ${actor.seat}${actor.kind === "ai" ? " · AI" : ""}`
@@ -138,66 +139,53 @@ function formatEvent(
   const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
   const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
 
+  // Wrap a single-row event so callers always return an array.
+  const one = (
+    text: string,
+    kind: FormattedEvent["kind"],
+    opts: { actorLabel?: string | null; color?: string | null; rowId?: string } = {}
+  ): FormattedEvent[] => [
+    {
+      rowId: opts.rowId ?? e.eventId,
+      event: e,
+      text,
+      actorLabel: opts.actorLabel ?? null,
+      color: opts.color ?? null,
+      kind,
+    },
+  ];
+
   switch (e.type) {
     case "game_started":
-      return {
-        event: e,
-        text: "Game started — map forged, setup begins.",
-        actorLabel: null,
-        color: null,
-        kind: "system",
-      };
+      return one("Game started — map forged, setup begins.", "system");
     case "turn_started": {
       const round = num(payload.round);
-      return {
-        event: e,
-        text: round != null ? `Started turn (round ${round}).` : "Started turn.",
-        actorLabel,
-        color,
-        kind: "neutral",
-      };
+      return one(
+        round != null ? `Started turn (round ${round}).` : "Started turn.",
+        "neutral",
+        { actorLabel, color }
+      );
     }
     case "turn_ended":
-      return {
-        event: e,
-        text: "Ended turn.",
-        actorLabel,
-        color,
-        kind: "neutral",
-      };
+      return one("Ended turn.", "neutral", { actorLabel, color });
     case "place_troop":
-      return {
-        event: e,
-        text: `Placed a troop on ${tag(payload.country_id)}.`,
+      return one(`Placed a troop on ${tag(payload.country_id)}.`, "neutral", {
         actorLabel,
         color,
-        kind: "neutral",
-      };
+      });
     case "place_researcher":
-      return {
-        event: e,
-        text: `Placed researcher on ${tag(payload.country_id)}.`,
+      return one(`Placed researcher on ${tag(payload.country_id)}.`, "neutral", {
         actorLabel,
         color,
-        kind: "neutral",
-      };
+      });
     case "place_capital":
-      return {
-        event: e,
-        text: `Placed capital on ${tag(payload.country_id)}.`,
+      return one(`Placed capital on ${tag(payload.country_id)}.`, "neutral", {
         actorLabel,
         color,
-        kind: "neutral",
-      };
+      });
     case "seed_disease": {
       const n = Array.isArray(payload.countries) ? payload.countries.length : 0;
-      return {
-        event: e,
-        text: `Disease seeded across ${n} countries.`,
-        actorLabel: null,
-        color: null,
-        kind: "bad",
-      };
+      return one(`Disease seeded across ${n} countries.`, "bad");
     }
     case "place_reinforcements": {
       const placements = payload.placements;
@@ -216,125 +204,126 @@ function formatEvent(
         const more = placements.length - 3;
         summary = `Reinforced: ${parts.filter(Boolean).join(", ")}${more > 0 ? ` +${more} more` : ""}.`;
       }
-      return { event: e, text: summary, actorLabel, color, kind: "good" };
+      return one(summary, "good", { actorLabel, color });
     }
     case "move_researcher_adjacent":
-      return {
-        event: e,
-        text: `Moved researcher to ${tag(payload.to_country_id)}.`,
+      return one(`Moved researcher to ${tag(payload.to_country_id)}.`, "neutral", {
         actorLabel,
         color,
-        kind: "neutral",
-      };
+      });
     case "airdrop_researcher":
-      return {
-        event: e,
-        text: `Airdropped researcher to ${tag(payload.to_country_id)}.`,
+      return one(`Airdropped researcher to ${tag(payload.to_country_id)}.`, "neutral", {
         actorLabel,
         color,
-        kind: "neutral",
-      };
+      });
     case "cure":
-      return {
-        event: e,
-        text: "Cured the researcher's country.",
-        actorLabel,
-        color,
-        kind: "good",
-      };
+      return one("Cured the researcher's country.", "good", { actorLabel, color });
     case "create_vaccine":
-      return {
-        event: e,
-        text: "Manufactured a vaccine.",
-        actorLabel,
-        color,
-        kind: "good",
-      };
+      return one("Manufactured a vaccine.", "good", { actorLabel, color });
     case "attack": {
       const from = tag(payload.from_country_id);
       const to = tag(payload.to_country_id);
       const armies = num(payload.armies);
       const captured = !!payload.captured;
       const note = captured ? " — captured!" : "";
-      return {
-        event: e,
-        text: `Attacked ${to} from ${from} with ${armies ?? "?"} armies${note}`,
-        actorLabel,
-        color,
-        kind: captured ? "good" : "bad",
-      };
+      return one(
+        `Attacked ${to} from ${from} with ${armies ?? "?"} armies${note}`,
+        captured ? "good" : "bad",
+        { actorLabel, color }
+      );
     }
     case "move_troops":
-      return {
-        event: e,
-        text: `Moved ${num(payload.armies) ?? "?"} armies from ${tag(payload.from_country_id)} to ${tag(payload.to_country_id)}.`,
-        actorLabel,
-        color,
-        kind: "neutral",
-      };
+      return one(
+        `Moved ${num(payload.armies) ?? "?"} armies from ${tag(payload.from_country_id)} to ${tag(payload.to_country_id)}.`,
+        "neutral",
+        { actorLabel, color }
+      );
     case "round_end_virus": {
-      const cubes = num(payload.cubes_placed) ?? num(payload.spread) ?? null;
-      const outbreaks = num(payload.outbreaks) ?? 0;
-      const cubesText = cubes != null ? `${cubes}` : "?";
-      return {
+      // Expand into a header line + one row per disease casualty + one
+      // row per placement / outbreak so the player can see exactly what
+      // the virus did this round (matching the floating "-X" / "+1"
+      // animations on the map).
+      const placements = Array.isArray(payload.placements) ? payload.placements : [];
+      const casualties = Array.isArray(payload.casualties) ? payload.casualties : [];
+      const outbreaks = Array.isArray(payload.outbreaks) ? payload.outbreaks : [];
+      const cubes = placements.length;
+      const outbreakCount = outbreaks.length;
+
+      const rows: FormattedEvent[] = [];
+      rows.push({
+        rowId: `${e.eventId}:hd`,
         event: e,
         text:
-          outbreaks > 0
-            ? `End of round — virus phase: ${cubesText} cubes spread, ${outbreaks} outbreak${outbreaks === 1 ? "" : "s"}.`
-            : `End of round — virus phase: ${cubesText} cubes spread.`,
+          outbreakCount > 0
+            ? `End of round — virus phase: ${cubes} cube${cubes === 1 ? "" : "s"} spread, ${outbreakCount} outbreak${outbreakCount === 1 ? "" : "s"}.`
+            : `End of round — virus phase: ${cubes} cube${cubes === 1 ? "" : "s"} spread.`,
         actorLabel: null,
         color: null,
         kind: "bad",
-      };
+      });
+      casualties.forEach((c: unknown, i: number) => {
+        if (!c || typeof c !== "object") return;
+        const obj = c as Record<string, unknown>;
+        const cid = typeof obj.country_id === "string" ? obj.country_id : null;
+        const lost = num(obj.armies_lost) ?? 0;
+        if (!cid || lost <= 0) return;
+        rows.push({
+          rowId: `${e.eventId}:cas:${i}`,
+          event: e,
+          text: `${tag(cid)} lost ${lost} troop${lost === 1 ? "" : "s"} to disease.`,
+          actorLabel: null,
+          color: null,
+          kind: "bad",
+        });
+      });
+      outbreaks.forEach((o: unknown, i: number) => {
+        if (!o || typeof o !== "object") return;
+        const obj = o as Record<string, unknown>;
+        const origin = typeof obj.origin_country_id === "string" ? obj.origin_country_id : null;
+        const chained = Array.isArray(obj.chained_country_ids) ? obj.chained_country_ids : [];
+        if (origin) {
+          rows.push({
+            rowId: `${e.eventId}:obo:${i}`,
+            event: e,
+            text:
+              chained.length > 0
+                ? `Outbreak in ${tag(origin)} (chained to ${chained.length} neighbour${chained.length === 1 ? "" : "s"}).`
+                : `Outbreak in ${tag(origin)}.`,
+            actorLabel: null,
+            color: null,
+            kind: "bad",
+          });
+        }
+      });
+      return rows;
     }
     case "outbreak":
-      return {
-        event: e,
-        text: `Outbreak in ${tag(payload.country_id)}!`,
-        actorLabel: null,
-        color: null,
-        kind: "bad",
-      };
+      return one(`Outbreak in ${tag(payload.country_id)}!`, "bad");
     case "player_eliminated": {
       const target = e.actorPlayerId ? players.get(e.actorPlayerId) : null;
       const byId = str(payload.by_player_id);
       const eliminator = byId ? players.get(byId) : null;
-      return {
-        event: e,
-        text: `Seat ${target?.seat ?? "?"} eliminated${eliminator ? ` by seat ${eliminator.seat}` : ""}.`,
-        actorLabel: null,
-        color: null,
-        kind: "bad",
-      };
+      return one(
+        `Seat ${target?.seat ?? "?"} eliminated${eliminator ? ` by seat ${eliminator.seat}` : ""}.`,
+        "bad"
+      );
     }
     case "capital_conquered":
-      return {
-        event: e,
-        text: `Capital ${tag(payload.country_id)} conquered!`,
+      return one(`Capital ${tag(payload.country_id)} conquered!`, "bad", {
         actorLabel,
         color,
-        kind: "bad",
-      };
+      });
     case "game_ended": {
       const winnerId = str(payload.winner);
       const winner = winnerId ? players.get(winnerId) : null;
       const reason = str(payload.reason) ?? "unknown";
-      return {
-        event: e,
-        text: winner ? `Game ended — seat ${winner.seat} wins.` : `Game ended (${reason}).`,
-        actorLabel: null,
-        color: null,
-        kind: "system",
-      };
+      return one(
+        winner ? `Game ended — seat ${winner.seat} wins.` : `Game ended (${reason}).`,
+        "system"
+      );
     }
     default:
-      return {
-        event: e,
-        text: e.type,
-        actorLabel,
-        color,
-        kind: "neutral",
-      };
+      return one(e.type, "neutral", { actorLabel, color });
   }
 }
 

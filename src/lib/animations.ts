@@ -21,7 +21,9 @@ export interface AnimationDirective {
   diseasePlayback: { until: number; events: GameEvent[] } | null;
 }
 
-const ATTACK_ROUND_INTERVAL_MS = 600; // 5 rounds = 3s, matching user spec
+// ms between attacker/defender damage floats per combat round. Slow enough
+// that each pair of "-X / -Y" sprites can be read individually.
+const ATTACK_ROUND_INTERVAL_MS = 1100;
 const VIRUS_STEP_INTERVAL_MS = 1000; // 1s between countries during virus
 const FLOAT_DURATION_MS = 1100;
 

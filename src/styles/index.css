@@ -450,8 +450,9 @@ body::after {
 .map-canvas {
   position: absolute;
   top: 0; left: 0;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  /* No pixelation — text on country badges should remain crisp at any zoom.
+     The tile art tolerates bilinear smoothing well enough that we don't
+     need to nearest-neighbour-scale the whole canvas. */
   display: block;
   transform-origin: top left;
   will-change: transform;

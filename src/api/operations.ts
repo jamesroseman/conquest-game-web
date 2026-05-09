@@ -57,6 +57,7 @@ const PLAYER_FIELDS = gql`
     eliminated
     countriesOwned
     totalArmies
+    cubesCured
   }
 `;
 
