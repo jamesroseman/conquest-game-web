@@ -106,6 +106,101 @@ export function drawCapitalStar(
   ctx.restore();
 }
 
+// Tank silhouette — appears on countries with 5+ armies. Slowly drifts
+// laterally so the unit feels patrol-y rather than parked.
+export function drawTank(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  now: number,
+  phaseSeed = 0
+): void {
+  const drift = Math.round(Math.sin((now + phaseSeed * 211) / 700) * 1.2);
+  const px = Math.round(x) + drift;
+  const py = Math.round(y);
+
+  // Drop shadow.
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(px - 1, py + 7, 12, 1);
+
+  // Hull.
+  ctx.fillStyle = color;
+  ctx.fillRect(px, py + 3, 10, 3);
+  // Treads.
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(px, py + 6, 10, 1);
+  ctx.fillRect(px, py + 5, 1, 2);
+  ctx.fillRect(px + 9, py + 5, 1, 2);
+  // Turret.
+  ctx.fillStyle = color;
+  ctx.fillRect(px + 3, py + 1, 4, 2);
+  // Barrel.
+  ctx.fillStyle = "rgba(0,0,0,0.65)";
+  ctx.fillRect(px + 6, py + 1, 5, 1);
+}
+
+// Artillery — appears at higher army counts. A static piece with a
+// pulsing barrel so the muzzle "fires".
+export function drawArtillery(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  now: number,
+  phaseSeed = 0
+): void {
+  const flash = ((now + phaseSeed * 311) / 600) % 1 < 0.08;
+  const px = Math.round(x);
+  const py = Math.round(y);
+
+  // Shadow.
+  ctx.fillStyle = "rgba(0,0,0,0.35)";
+  ctx.fillRect(px - 1, py + 8, 11, 1);
+
+  // Wheels.
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(px + 1, py + 6, 2, 2);
+  ctx.fillRect(px + 6, py + 6, 2, 2);
+  ctx.fillStyle = color;
+  ctx.fillRect(px + 1, py + 5, 2, 1);
+  ctx.fillRect(px + 6, py + 5, 2, 1);
+  // Carriage.
+  ctx.fillStyle = color;
+  ctx.fillRect(px, py + 4, 9, 2);
+  // Barrel angled up-right.
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(px + 5, py + 3, 1, 1);
+  ctx.fillRect(px + 6, py + 2, 1, 1);
+  ctx.fillRect(px + 7, py + 1, 1, 1);
+  ctx.fillRect(px + 8, py, 1, 1);
+
+  if (flash) {
+    ctx.fillStyle = "#ffd47a";
+    ctx.fillRect(px + 9, py - 1, 2, 2);
+    ctx.fillStyle = "rgba(255, 200, 80, 0.5)";
+    ctx.fillRect(px + 8, py - 2, 4, 1);
+  }
+}
+
+// Choose how many of each unit type to show for a given army count. Caps
+// out so a 200-army country doesn't become a wall of pixel-art.
+export interface UnitCounts {
+  soldiers: number;
+  tanks: number;
+  artillery: number;
+}
+
+export function unitCountsFor(armies: number): UnitCounts {
+  if (armies <= 0) return { soldiers: 0, tanks: 0, artillery: 0 };
+  if (armies < 5) return { soldiers: Math.min(2, Math.max(1, armies - 1)), tanks: 0, artillery: 0 };
+  if (armies < 10) return { soldiers: 2, tanks: 1, artillery: 0 };
+  if (armies < 20) return { soldiers: 2, tanks: 2, artillery: 0 };
+  if (armies < 50) return { soldiers: 2, tanks: 2, artillery: 1 };
+  if (armies < 100) return { soldiers: 3, tanks: 2, artillery: 2 };
+  return { soldiers: 3, tanks: 3, artillery: 3 };
+}
+
 // Tiny researcher icon — pulsing circle in the owner's colour.
 export function drawResearcher(
   ctx: CanvasRenderingContext2D,

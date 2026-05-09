@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GameEvent, GameStateView } from "@/api/types";
 
 interface Props {
@@ -6,8 +6,17 @@ interface Props {
 }
 
 // Live append-only event log. Replaces the country inspector on the right
-// rail so the human can SEE the bots playing turn by turn. Auto-scrolls
-// to the newest event whenever a new sequence comes in.
+// rail so the human can SEE the bots playing turn by turn.
+//
+// Behaviour:
+//   - Collapsed by default after the first new event lands; click the
+//     header to expand/collapse.
+//   - When expanded, the most recent ~5 events are visible; older events
+//     scroll into view.
+//   - Auto-scrolls to the newest event whenever a new sequence comes in.
+const VISIBLE_ROWS = 5;
+const ROW_HEIGHT = 56; // approximate; drives the scroll viewport size
+
 export function EventLog({ state }: Props): JSX.Element {
   const { players, recentEvents } = state;
 
@@ -41,48 +50,64 @@ export function EventLog({ state }: Props): JSX.Element {
     if (el) el.scrollTop = el.scrollHeight;
   }, [recentEvents]);
 
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <div
       className="panel panel-fixed"
-      style={{ top: 60, right: 14, width: 280, maxHeight: "calc(100vh - 80px)" }}
+      style={{ top: 60, right: 14, width: 280 }}
     >
-      <div className="hd">
+      <div
+        className="hd"
+        style={{ cursor: "pointer", userSelect: "none" }}
+        onClick={() => setCollapsed((c) => !c)}
+        role="button"
+        aria-expanded={!collapsed}
+        aria-label="Toggle event log"
+      >
         event log
         <span className="right">
           R{state.game.turn.roundNumber} · T{state.game.turn.turnNumber}
+          <span style={{ marginLeft: 8, opacity: 0.7 }}>{collapsed ? "▸" : "▾"}</span>
         </span>
       </div>
-      <div
-        className="bd"
-        ref={scrollRef}
-        style={{ maxHeight: "calc(100vh - 130px)", overflowY: "auto", padding: 0 }}
-      >
-        {formatted.length === 0 ? (
-          <div className="bd dim" style={{ padding: "12px 10px" }}>
-            Game just started — events will appear here as players act.
-          </div>
-        ) : (
-          <ul className="evlog">
-            {formatted.map((row) => (
-              <li
-                key={row.event.eventId}
-                className={`evrow evrow-${row.kind}`}
-                style={row.color ? { borderLeftColor: row.color } : undefined}
-              >
-                <span className="ev-meta">
-                  <span className="ev-seq">#{row.event.sequence}</span>
-                  {row.actorLabel && (
-                    <span className="ev-actor" style={{ color: row.color ?? "var(--ink-dim)" }}>
-                      {row.actorLabel}
-                    </span>
-                  )}
-                </span>
-                <span className="ev-text">{row.text}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      {!collapsed && (
+        <div
+          className="bd"
+          ref={scrollRef}
+          style={{
+            maxHeight: VISIBLE_ROWS * ROW_HEIGHT,
+            overflowY: "auto",
+            padding: 0,
+          }}
+        >
+          {formatted.length === 0 ? (
+            <div className="bd dim" style={{ padding: "12px 10px" }}>
+              Game just started — events will appear here as players act.
+            </div>
+          ) : (
+            <ul className="evlog">
+              {formatted.map((row) => (
+                <li
+                  key={row.event.eventId}
+                  className={`evrow evrow-${row.kind}`}
+                  style={row.color ? { borderLeftColor: row.color } : undefined}
+                >
+                  <span className="ev-meta">
+                    <span className="ev-seq">#{row.event.sequence}</span>
+                    {row.actorLabel && (
+                      <span className="ev-actor" style={{ color: row.color ?? "var(--ink-dim)" }}>
+                        {row.actorLabel}
+                      </span>
+                    )}
+                  </span>
+                  <span className="ev-text">{row.text}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

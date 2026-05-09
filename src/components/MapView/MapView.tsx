@@ -13,7 +13,15 @@ import {
 } from "@/lib/iso";
 import { drawWoodFrame } from "@/lib/wood";
 import { drawAnimatedMotifs } from "@/lib/motifs";
-import { drawBiohazard, drawCapitalStar, drawResearcher, drawSoldier } from "@/lib/sprites";
+import {
+  drawArtillery,
+  drawBiohazard,
+  drawCapitalStar,
+  drawResearcher,
+  drawSoldier,
+  drawTank,
+  unitCountsFor,
+} from "@/lib/sprites";
 import type { FloatingNumber } from "@/lib/animations";
 import { ZOOM_MAX, ZOOM_MIN, clampView, type View } from "@/lib/view";
 
@@ -231,20 +239,8 @@ export function MapView({
       }
       ctx.restore();
 
-      // Coastlines.
-      ctx.save();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.shadowColor = "rgba(91,227,255,0.55)";
-      ctx.shadowBlur = 8;
-      ctx.strokeStyle = "rgba(91,227,255,0.65)";
-      ctx.lineWidth = 2.4;
-      ctx.stroke(outlines.coast);
-      ctx.shadowBlur = 0;
-      ctx.strokeStyle = "rgba(200,245,255,1)";
-      ctx.lineWidth = 1.2;
-      ctx.stroke(outlines.coast);
-      ctx.restore();
+      // (Coastline glow removed — country borders alone read the geography
+      //  cleanly enough; the cyan halo was visually noisy.)
 
       // Sea paths — dashed neon arcs from one country's centroid to its
       // sea-path neighbour's. Land paths are NOT drawn (adjacent countries
@@ -327,6 +323,11 @@ export function MapView({
         }
         ctx.restore();
       }
+
+      // Per-tile troop sprites — soldiers / tanks / artillery scaled by
+      // each country's army count. Painted under the badge so the badge
+      // remains readable.
+      drawTroopSprites(ctx, map, iso, stateByCountry, playerColorById, now);
 
       // Country badges + sprites.
       drawCountryBadges(ctx, map, iso, stateByCountry, playerColorById, now);
@@ -512,13 +513,16 @@ function drawCountryBadges(
     const anchorX = cx;
     const anchorY = cy + TH / 2;
 
-    const w = armies >= 100 || cubes >= 10 ? 64 : 52;
-    const h = 20;
-    const tagH = 11;
-    const tagW = Math.min(w - 8, c.tag.length * 7 + 8);
+    // Big readable badge. The whole HUD uses image-rendering: pixelated, so
+    // small text gets blocky when the user zooms in; bumping pixel sizes
+    // here gives the rasteriser more pixels per glyph so the text reads
+    // clean from afar AND up close.
+    const w = armies >= 100 || cubes >= 10 ? 110 : 90;
+    const h = 36;
+    const tagH = 18;
+    const tagW = Math.min(w - 12, c.tag.length * 11 + 14);
     const x0 = anchorX - w / 2;
-    // Pull the badge a little higher so the tag chip sits above it.
-    const y0 = anchorY - h - 18 - tagH + 2;
+    const y0 = anchorY - h - 28 - tagH + 2;
 
     // Body sits below the tag chip.
     const bodyY = y0 + tagH;
@@ -549,7 +553,7 @@ function drawCountryBadges(
     roundRect(ctx, tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1, 2.6);
     ctx.stroke();
     ctx.fillStyle = "#f4f7e8";
-    ctx.font = "bold 8px ui-monospace, JetBrains Mono, Menlo, monospace";
+    ctx.font = "bold 13px ui-monospace, JetBrains Mono, Menlo, monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(c.tag, anchorX, tagY + tagH / 2 + 0.5);
@@ -572,35 +576,37 @@ function drawCountryBadges(
     ctx.fillStyle = "rgba(91,227,255,0.18)";
     ctx.fillRect(x0 + w / 2, bodyY + 4, 1, h - 8);
 
+    // Soldier sprite + army count on the left half.
     if (armies > 0) {
       const phaseSeed =
         ((c.countryId.charCodeAt(0) ?? 0) +
           (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
-      drawSoldier(ctx, x0 + 4, bodyY + 5, ownerColor, now, phaseSeed);
+      drawSoldier(ctx, x0 + 6, bodyY + 12, ownerColor, now, phaseSeed);
       ctx.fillStyle = "#f4f7e8";
-      ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(armies), x0 + 13, bodyY + h / 2 + 0.5);
+      ctx.fillText(String(armies), x0 + 18, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
-      ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = "14px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("·", x0 + w / 4, bodyY + h / 2 + 0.5);
     }
 
+    // Biohazard sprite + cube count on the right half.
     if (cubes > 0) {
       const phaseSeed = c.countryId.length * 13;
-      drawBiohazard(ctx, x0 + w / 2 + 4, bodyY + 5, accent, now, phaseSeed);
+      drawBiohazard(ctx, x0 + w / 2 + 6, bodyY + 12, accent, now, phaseSeed);
       ctx.fillStyle = accent;
-      ctx.font = "bold 10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(cubes), x0 + w / 2 + 14, bodyY + h / 2 + 0.5);
+      ctx.fillText(String(cubes), x0 + w / 2 + 18, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
-      ctx.font = "10px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = "14px ui-monospace, JetBrains Mono, Menlo, monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("·", x0 + (3 * w) / 4, bodyY + h / 2 + 0.5);
@@ -623,6 +629,57 @@ function drawCountryBadges(
       ctx.arc(anchorX, anchorY + 4, 8, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
+    }
+  }
+}
+
+// Per-tile troop sprites. Soldiers/tanks/artillery are placed on country
+// tiles around the centroid in a small cluster so they don't overlap. The
+// counts scale with army strength (see `unitCountsFor`).
+function drawTroopSprites(
+  ctx: CanvasRenderingContext2D,
+  map: ConquestMap,
+  iso: IsoMath,
+  stateByCountry: Map<string, CountryState>,
+  playerColorById: Map<string, string>,
+  now: number
+): void {
+  for (const c of map.countries) {
+    const state = stateByCountry.get(c.countryId);
+    if (!state) continue;
+    const armies = state.armies ?? 0;
+    if (armies <= 0) continue;
+    const ownerColor = state.ownerPlayerId
+      ? playerColorById.get(state.ownerPlayerId) ?? "#aab8c4"
+      : "#aab8c4";
+    const counts = unitCountsFor(armies);
+    const seed =
+      ((c.countryId.charCodeAt(0) ?? 0) +
+        (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
+
+    // Anchor cluster slightly south + east of the centroid so it doesn't
+    // collide with capital/researcher overlays sitting on the centroid.
+    const { cx, cy } = isoPos(iso, c.centroidX, c.centroidY, 0);
+    const baseX = cx - 18;
+    const baseY = cy + TH / 2 + 12;
+    let i = 0;
+    const slot = (offset: number): { sx: number; sy: number } => {
+      // Lay units out in a 3-wide grid spaced by ~14px.
+      const col = (offset % 3) * 14;
+      const row = Math.floor(offset / 3) * 11;
+      return { sx: baseX + col, sy: baseY + row };
+    };
+    for (let k = 0; k < counts.artillery; k++, i++) {
+      const { sx, sy } = slot(i);
+      drawArtillery(ctx, sx, sy, ownerColor, now, seed + k);
+    }
+    for (let k = 0; k < counts.tanks; k++, i++) {
+      const { sx, sy } = slot(i);
+      drawTank(ctx, sx, sy, ownerColor, now, seed + 100 + k);
+    }
+    for (let k = 0; k < counts.soldiers; k++, i++) {
+      const { sx, sy } = slot(i);
+      drawSoldier(ctx, sx, sy, ownerColor, now, seed + 200 + k);
     }
   }
 }

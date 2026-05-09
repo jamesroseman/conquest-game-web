@@ -191,14 +191,79 @@ export function ActionPanel({
     const remaining = game.turn.reinforcementsToPlace;
     const canPlace = !!selected && isMine(selected) && reinforceCount >= 1 && reinforceCount <= remaining;
     const selectedCountry = selected ? countryById.get(selected.countryId) : null;
+
+    // Reinforcement breakdown: base + per-country + continent bonuses + capital
+    // auto-place. Computed locally for display only — the server is still
+    // authoritative for the actual reinforcementsToPlace value, this is just
+    // showing the player how the number was derived.
+    const cfg = game.config;
+    const myCountriesOwned = myPlayer.countriesOwned;
+    const perCountryBonus = cfg.reinforcementPerCountry * myCountriesOwned;
+    const fullyOwnedContinents: { name: string; bonus: number }[] = [];
+    if (state.map) {
+      const ownedSet = new Set(
+        state.countryStates
+          .filter((s) => s.ownerPlayerId === myPlayer.playerId)
+          .map((s) => s.countryId)
+      );
+      for (const cont of state.map.continents) {
+        if (cont.bonusArmies > 0 && cont.countryIds.every((id) => ownedSet.has(id))) {
+          fullyOwnedContinents.push({ name: cont.name, bonus: cont.bonusArmies });
+        }
+      }
+    }
+    const continentBonusTotal = fullyOwnedContinents.reduce((a, b) => a + b.bonus, 0);
+    const capitalAuto = cfg.reinforcementCapitalBonus;
+    const subTotal = cfg.reinforcementBase + perCountryBonus + continentBonusTotal;
+    const placeable = Math.max(0, subTotal - capitalAuto);
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <div className="kv">
           <span className="k">reinforcements</span>
-          <span className="v neon" style={{ fontWeight: 600 }}>{remaining}</span>
+          <span className="v neon" style={{ fontWeight: 700, fontSize: 13 }}>{remaining}</span>
         </div>
+
+        {/* How the total was calculated. Always visible during reinforcements
+            so the player can sanity-check what the server gave them. */}
+        <div className="subform" style={{ marginTop: 0 }}>
+          <div className="section-hd" style={{ margin: 0, padding: 0, border: 0 }}>
+            calculation
+          </div>
+          <div className="kv"><span className="k">base</span><span className="v">+{cfg.reinforcementBase}</span></div>
+          <div className="kv">
+            <span className="k">per country ({myCountriesOwned} × {cfg.reinforcementPerCountry})</span>
+            <span className="v">+{perCountryBonus}</span>
+          </div>
+          {fullyOwnedContinents.length > 0 ? (
+            fullyOwnedContinents.map((c) => (
+              <div className="kv" key={c.name}>
+                <span className="k">continent · {c.name}</span>
+                <span className="v good">+{c.bonus}</span>
+              </div>
+            ))
+          ) : (
+            <div className="kv">
+              <span className="k">continent bonus</span>
+              <span className="v" style={{ color: "var(--ink-faint)" }}>none</span>
+            </div>
+          )}
+          <div className="kv" style={{ borderTop: "1px dashed rgba(91,227,255,0.18)", paddingTop: 4, marginTop: 2 }}>
+            <span className="k">subtotal</span>
+            <span className="v">{subTotal}</span>
+          </div>
+          <div className="kv">
+            <span className="k">capital auto-place</span>
+            <span className="v" style={{ color: "var(--mid)" }}>−{capitalAuto}</span>
+          </div>
+          <div className="kv">
+            <span className="k">to place</span>
+            <span className="v neon" style={{ fontWeight: 700 }}>{placeable}</span>
+          </div>
+        </div>
+
         <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
-          Click one of your countries on the map, then place.
+          Click one of your countries on the map, then deploy.
         </div>
         <div className="subform">
           <div className="row">
@@ -389,11 +454,36 @@ export function ActionPanel({
             </span>
             <span style={{ fontSize: 11, color: "var(--ink)" }}>{selectedCountryRecord.name}</span>
           </div>
-          <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
-            {selected.armies}a · {selected.diseaseCubes} cubes
-            {selected.vaccinated ? " · vaccinated" : ""}
-            {selected.isCapitalOf ? " · capital" : ""}
+          <div className="kv">
+            <span className="k">troops</span>
+            <span
+              className="v neon"
+              style={{ fontWeight: 700, fontSize: 14, fontVariantNumeric: "tabular-nums" }}
+            >
+              {selected.armies}
+            </span>
           </div>
+          <div className="kv">
+            <span className="k">disease</span>
+            <span
+              className={`v ${
+                (selected.diseaseCubes ?? 0) === 0
+                  ? "good"
+                  : (selected.diseaseCubes ?? 0) >= 2
+                    ? "bad"
+                    : "mid"
+              }`}
+            >
+              {selected.diseaseCubes} cube{selected.diseaseCubes === 1 ? "" : "s"}
+              {selected.vaccinated ? " · vaccinated" : ""}
+            </span>
+          </div>
+          {selected.isCapitalOf && (
+            <div className="kv">
+              <span className="k">role</span>
+              <span className="v warn">capital</span>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ fontSize: 10, color: "var(--ink-dim)" }}>
