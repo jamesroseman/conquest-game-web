@@ -4,7 +4,7 @@ import { MapView } from "@/components/MapView/MapView";
 import { Minimap } from "@/components/Minimap";
 import { PlayerList } from "@/components/PlayerList";
 import { ActionPanel, type TargetMode } from "@/components/ActionPanel/ActionPanel";
-import { CountryInspector } from "@/components/CountryInspector";
+import { EventLog } from "@/components/EventLog";
 import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
 import { useMyPlayer } from "@/hooks/useMyPlayer";
 import { useAuth } from "@/auth/useAuth";
@@ -18,7 +18,6 @@ interface Props {
 export function GameScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const [selected, setSelected] = useState<string | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
   const [viewport, setViewport] = useState({ w: 1, h: 1 });
   const [targetMode, setTargetMode] = useState<TargetMode>(null);
@@ -84,7 +83,6 @@ export function GameScreen({ state }: Props): JSX.Element {
               if (targetMode) return;
               setSelected((prev) => (prev === id ? null : id));
             }}
-            onCountryHover={setHover}
             onViewportSize={(w, h) => setViewport({ w, h })}
           />
         ) : (
@@ -115,8 +113,8 @@ export function GameScreen({ state }: Props): JSX.Element {
         </div>
       </div>
 
-      {/* Top-right: country inspector */}
-      <CountryInspector hoverCountryId={hover ?? selected} state={state} />
+      {/* Top-right: live event log so the human can see what bots are doing */}
+      <EventLog state={state} />
 
       {/* Bottom-left: outbreak counter + players */}
       <div className="panel panel-fixed" style={{ bottom: 14, left: 14, width: 280 }}>

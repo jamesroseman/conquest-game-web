@@ -167,11 +167,21 @@ export interface Game {
   endedReason: string | null;
 }
 
+export interface GameEvent {
+  eventId: string;
+  sequence: number;
+  type: string;
+  actorPlayerId: string | null;
+  payloadJson: string;
+  createdAt: string;
+}
+
 export interface GameStateView {
   game: Game;
   players: Player[];
   countryStates: CountryState[];
   map: ConquestMap | null;
+  recentEvents: GameEvent[];
 }
 
 export interface GameError {

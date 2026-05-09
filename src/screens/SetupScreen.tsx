@@ -9,7 +9,7 @@ import type { GameStateView, StateMutationResult } from "@/api/types";
 import { MapView } from "@/components/MapView/MapView";
 import { Minimap } from "@/components/Minimap";
 import { PlayerList } from "@/components/PlayerList";
-import { CountryInspector } from "@/components/CountryInspector";
+import { EventLog } from "@/components/EventLog";
 import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
 import { useAuth } from "@/auth/useAuth";
 import { makeIso } from "@/lib/iso";
@@ -23,7 +23,6 @@ export function SetupScreen({ state }: Props): JSX.Element {
   const { user } = useAuth();
   const { game, players, countryStates, map } = state;
   const [error, setError] = useState<string | null>(null);
-  const [hover, setHover] = useState<string | null>(null);
   const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
   const [viewport, setViewport] = useState({ w: 1, h: 1 });
   const lastMapId = useRef<string | null>(null);
@@ -120,7 +119,6 @@ export function SetupScreen({ state }: Props): JSX.Element {
             view={view}
             setView={setView}
             onCountryClick={onCountryClick}
-            onCountryHover={setHover}
             onViewportSize={(w, h) => setViewport({ w, h })}
           />
         ) : (
@@ -158,7 +156,7 @@ export function SetupScreen({ state }: Props): JSX.Element {
         </div>
       </div>
 
-      <CountryInspector hoverCountryId={hover} state={state} />
+      <EventLog state={state} />
 
       {map && (
         <Minimap

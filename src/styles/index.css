@@ -735,6 +735,61 @@ body::after {
   letter-spacing: 0.06em;
 }
 
+/* ============================================================
+   Event log — replaces the inspector on the right rail.
+   ============================================================ */
+.evlog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.evrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px dashed rgba(91, 227, 255, 0.10);
+  border-left: 3px solid transparent;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.evrow:last-child {
+  border-bottom: 0;
+}
+.evrow-system {
+  border-left-color: rgba(91, 227, 255, 0.35);
+  background: rgba(91, 227, 255, 0.04);
+}
+.evrow-bad {
+  border-left-color: rgba(232, 91, 58, 0.55);
+}
+.evrow-good {
+  border-left-color: rgba(155, 225, 93, 0.55);
+}
+.evrow-neutral {
+  border-left-color: rgba(216, 230, 242, 0.18);
+}
+.evrow .ev-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.evrow .ev-seq {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+.evrow .ev-actor {
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+.evrow .ev-text {
+  color: var(--ink);
+}
+
 /* Country tag chip — short identifier ("A1", "B3"). Used inline in the
    action panel and the inspector. */
 .tg {

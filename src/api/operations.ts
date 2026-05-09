@@ -133,6 +133,14 @@ const STATE_FIELDS = gql`
     map {
       ...MapFields
     }
+    recentEvents {
+      eventId
+      sequence
+      type
+      actorPlayerId
+      payloadJson
+      createdAt
+    }
   }
 `;
 
