@@ -33,6 +33,9 @@ export function GameScreen({ state }: Props): JSX.Element {
   const myPlayer = useMyPlayer(state);
   const { game, players, countryStates, map } = state;
   const lastMapId = useRef<string | null>(null);
+  // ActionPanel writes a dispatcher here while target mode is active so map
+  // clicks on highlighted countries can fire the chosen attack/move.
+  const dispatchTargetRef = useRef<((id: string) => void) | null>(null);
 
   const playerColorById = useMemo(() => {
     const m = new Map<string, string>();
@@ -139,10 +142,14 @@ export function GameScreen({ state }: Props): JSX.Element {
             highlightedIds={highlightedIds}
             floats={floats}
             onCountryClick={(id) => {
-              // In target mode, leave selection alone — the ActionPanel's
-              // target list owns the click resolution. Selecting a new
-              // country here would silently change the source mid-attack.
-              if (targetMode) return;
+              // In target mode, route the click to the ActionPanel's
+              // dispatcher when the country is a valid candidate. Anything
+              // else (clicking a non-candidate) is a no-op so the source
+              // doesn't silently change mid-attack.
+              if (targetMode) {
+                if (highlightedIds?.has(id)) dispatchTargetRef.current?.(id);
+                return;
+              }
               setSelected((prev) => (prev === id ? null : id));
             }}
             onViewportSize={(w, h) => setViewport({ w, h })}
@@ -174,6 +181,7 @@ export function GameScreen({ state }: Props): JSX.Element {
               setSelectedCountryId={setSelected}
               targetMode={targetMode}
               setTargetMode={setTargetMode}
+              dispatchTargetRef={dispatchTargetRef}
             />
           )}
         </div>

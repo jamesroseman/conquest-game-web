@@ -65,7 +65,59 @@ export function buildAnimationDirective(
     nextSeq = Math.max(nextSeq, e.sequence);
     const p = parsePayload(e.payloadJson);
 
-    if (e.type === "attack") {
+    if (e.type === "place_troop") {
+      // Setup-phase placement. The action payload only carries
+      // `country_id`; the count is fixed at 2 (TROOPS_PER_PLACEMENT)
+      // server-side. Floats "+2" in the actor's player colour over the
+      // claimed/reinforced country.
+      const cid = STR(p.country_id);
+      const actor = STR(e.actorPlayerId);
+      if (cid && actor) {
+        spawns.push({
+          id: `${e.eventId}:troop`,
+          countryId: cid,
+          amount: 2,
+          color: ctx.playerColor(actor),
+          label: "+2",
+          startAt: cursor,
+          duration: FLOAT_DURATION_MS,
+        });
+        cursor += 250;
+      }
+    } else if (e.type === "place_reinforcements") {
+      // Each placement entry carries either [countryId, count] tuples or
+      // {country_id, count} dicts. Every placement gets its own +N float
+      // staggered by 250ms so a multi-country deploy reads as a sequence.
+      const placements = Array.isArray(p.placements) ? p.placements : [];
+      const actor = STR(e.actorPlayerId);
+      const color = ctx.playerColor(actor);
+      let t = cursor;
+      placements.forEach((placement: unknown, i: number) => {
+        let cid: string | null = null;
+        let count: number | null = null;
+        if (Array.isArray(placement) && placement.length >= 2) {
+          cid = typeof placement[0] === "string" ? placement[0] : null;
+          count = typeof placement[1] === "number" ? placement[1] : null;
+        } else if (placement && typeof placement === "object") {
+          const obj = placement as Record<string, unknown>;
+          cid = STR(obj.country_id ?? obj.countryId);
+          count = NUM(obj.count);
+        }
+        if (cid && count != null && count > 0) {
+          spawns.push({
+            id: `${e.eventId}:rein:${i}`,
+            countryId: cid,
+            amount: count,
+            color,
+            label: `+${count}`,
+            startAt: t,
+            duration: FLOAT_DURATION_MS,
+          });
+          t += 250;
+        }
+      });
+      cursor = t;
+    } else if (e.type === "attack") {
       const fromId = STR(p.from_country_id);
       const toId = STR(p.to_country_id);
       const attackerOwner = STR(p.attacker_owner_id);

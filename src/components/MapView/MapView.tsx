@@ -187,18 +187,29 @@ export function MapView({
   }, [iso, tilesByXY]);
 
   // Report viewport size to the parent (for the minimap viewport rectangle).
+  // The parent typically passes `onViewportSize={(w,h)=>setViewport({w,h})}`
+  // — a fresh function reference every render. If the effect depends on it
+  // directly, the ResizeObserver re-creates each render, fires an initial
+  // `update()` that calls `onViewportSize`, the parent calls `setState`,
+  // which re-renders, which re-runs this effect... → "Maximum update depth
+  // exceeded" and polling can't render its results in between. Stash the
+  // latest callback in a ref so the effect's deps stay empty.
+  const onViewportSizeRef = useRef<typeof onViewportSize>(onViewportSize);
+  useEffect(() => {
+    onViewportSizeRef.current = onViewportSize;
+  }, [onViewportSize]);
   useEffect(() => {
     const wrap = wrapRef.current;
-    if (!wrap || !onViewportSize) return;
+    if (!wrap) return;
     const update = (): void => {
       const r = wrap.getBoundingClientRect();
-      onViewportSize(r.width, r.height);
+      onViewportSizeRef.current?.(r.width, r.height);
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [onViewportSize]);
+  }, []);
 
   // Animation loop.
   useEffect(() => {
@@ -324,13 +335,23 @@ export function MapView({
         ctx.restore();
       }
 
+      // Inverse-scale factor for screen-space-stable HUD elements. At
+      // zoom < 1 (user zoomed out), the canvas is rendered at 0.7×/0.5×
+      // screen size — without compensation the badges shrink with the
+      // world and become illegible. We multiply badge dimensions by
+      // (1/zoom) when zoomed out so the screen-pixel size stays constant.
+      // At zoom >= 1 we leave things alone (badges grow naturally as the
+      // user zooms in).
+      const hudScale = view.zoom < 1 ? 1 / view.zoom : 1;
+
       // Per-tile troop sprites — soldiers / tanks / artillery scaled by
       // each country's army count. Painted under the badge so the badge
-      // remains readable.
+      // remains readable. Sprites stay tied to world zoom so they sit
+      // naturally on their tiles; only HUD chrome is inverse-scaled.
       drawTroopSprites(ctx, map, iso, stateByCountry, playerColorById, now);
 
-      // Country badges + sprites.
-      drawCountryBadges(ctx, map, iso, stateByCountry, playerColorById, now);
+      // Country badges + sprites (inverse-scaled at zoom < 1).
+      drawCountryBadges(ctx, map, iso, stateByCountry, playerColorById, now, hudScale);
 
       // Floating damage / cube numbers above country tags.
       drawFloatingNumbers(
@@ -340,14 +361,15 @@ export function MapView({
         stateByCountry,
         playerColorById,
         floatsRef.current,
-        now
+        now,
+        hudScale
       );
 
       raf = requestAnimationFrame(render);
     };
     raf = requestAnimationFrame(render);
     return () => cancelAnimationFrame(raf);
-  }, [iso, map, tilesByXY, outlines, stateByCountry, playerColorById, selectedCountryId, highlightedIds, countryById]);
+  }, [iso, map, tilesByXY, outlines, stateByCountry, playerColorById, selectedCountryId, highlightedIds, countryById, view.zoom]);
 
   // Hit-testing — point in canvas-local pixels → tile.
   function pointToTile(clientX: number, clientY: number): Tile | null {
@@ -493,7 +515,8 @@ function drawCountryBadges(
   iso: IsoMath,
   stateByCountry: Map<string, CountryState>,
   playerColorById: Map<string, string>,
-  now: number
+  now: number,
+  scale: number
 ): void {
   for (const c of map.countries) {
     const state = stateByCountry.get(c.countryId);
@@ -516,13 +539,14 @@ function drawCountryBadges(
     // Big readable badge. The whole HUD uses image-rendering: pixelated, so
     // small text gets blocky when the user zooms in; bumping pixel sizes
     // here gives the rasteriser more pixels per glyph so the text reads
-    // clean from afar AND up close.
-    const w = armies >= 100 || cubes >= 10 ? 110 : 90;
-    const h = 36;
-    const tagH = 18;
-    const tagW = Math.min(w - 12, c.tag.length * 11 + 14);
+    // clean from afar AND up close. `scale` (>=1 when zoomed out) inflates
+    // badge geometry so the on-screen size stays legible at any zoom.
+    const w = (armies >= 100 || cubes >= 10 ? 110 : 90) * scale;
+    const h = 36 * scale;
+    const tagH = 18 * scale;
+    const tagW = Math.min(w - 12 * scale, (c.tag.length * 11 + 14) * scale);
     const x0 = anchorX - w / 2;
-    const y0 = anchorY - h - 28 - tagH + 2;
+    const y0 = anchorY - h - 28 * scale - tagH + 2 * scale;
 
     // Body sits below the tag chip.
     const bodyY = y0 + tagH;
@@ -531,13 +555,13 @@ function drawCountryBadges(
     ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 2;
     ctx.fillStyle = "#0d0f0a";
-    roundRect(ctx, x0, bodyY, w, h, 4);
+    roundRect(ctx, x0, bodyY, w, h, 4 * scale);
     ctx.fill();
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
     ctx.fillStyle = "#1a1d12";
-    roundRect(ctx, x0 + 1, bodyY + 1, w - 2, h - 2, 3.2);
+    roundRect(ctx, x0 + 1, bodyY + 1, w - 2, h - 2, 3.2 * scale);
     ctx.fill();
 
     // Tag chip — short identifier ("A1", "B3") so a player can refer
@@ -546,14 +570,14 @@ function drawCountryBadges(
     const tagX = anchorX - tagW / 2;
     const tagY = y0;
     ctx.fillStyle = "#0d0f0a";
-    roundRect(ctx, tagX, tagY, tagW, tagH, 3);
+    roundRect(ctx, tagX, tagY, tagW, tagH, 3 * scale);
     ctx.fill();
     ctx.strokeStyle = ownerColor;
-    ctx.lineWidth = 1;
-    roundRect(ctx, tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1, 2.6);
+    ctx.lineWidth = 1 * scale;
+    roundRect(ctx, tagX + 0.5, tagY + 0.5, tagW - 1, tagH - 1, 2.6 * scale);
     ctx.stroke();
     ctx.fillStyle = "#f4f7e8";
-    ctx.font = "bold 13px ui-monospace, JetBrains Mono, Menlo, monospace";
+    ctx.font = `bold ${13 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(c.tag, anchorX, tagY + tagH / 2 + 0.5);
@@ -569,27 +593,27 @@ function drawCountryBadges(
     let pulse = 1;
     if (cubes >= 2) pulse = 1 + 0.15 * Math.sin(now / 160);
     ctx.strokeStyle = accent;
-    ctx.lineWidth = 1 * pulse;
-    roundRect(ctx, x0 + 0.5, bodyY + 0.5, w - 1, h - 1, 3.6);
+    ctx.lineWidth = 1 * pulse * scale;
+    roundRect(ctx, x0 + 0.5, bodyY + 0.5, w - 1, h - 1, 3.6 * scale);
     ctx.stroke();
 
     ctx.fillStyle = "rgba(91,227,255,0.18)";
-    ctx.fillRect(x0 + w / 2, bodyY + 4, 1, h - 8);
+    ctx.fillRect(x0 + w / 2, bodyY + 4 * scale, 1 * scale, h - 8 * scale);
 
     // Soldier sprite + army count on the left half.
     if (armies > 0) {
       const phaseSeed =
         ((c.countryId.charCodeAt(0) ?? 0) +
           (c.countryId.charCodeAt(c.countryId.length - 1) ?? 0)) | 0;
-      drawSoldier(ctx, x0 + 6, bodyY + 12, ownerColor, now, phaseSeed);
+      drawSoldier(ctx, x0 + 6 * scale, bodyY + 12 * scale, ownerColor, now, phaseSeed);
       ctx.fillStyle = "#f4f7e8";
-      ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = `bold ${16 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(armies), x0 + 18, bodyY + h / 2 + 0.5);
+      ctx.fillText(String(armies), x0 + 18 * scale, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
-      ctx.font = "14px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = `${14 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("·", x0 + w / 4, bodyY + h / 2 + 0.5);
@@ -598,15 +622,15 @@ function drawCountryBadges(
     // Biohazard sprite + cube count on the right half.
     if (cubes > 0) {
       const phaseSeed = c.countryId.length * 13;
-      drawBiohazard(ctx, x0 + w / 2 + 6, bodyY + 12, accent, now, phaseSeed);
+      drawBiohazard(ctx, x0 + w / 2 + 6 * scale, bodyY + 12 * scale, accent, now, phaseSeed);
       ctx.fillStyle = accent;
-      ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = `bold ${16 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(cubes), x0 + w / 2 + 18, bodyY + h / 2 + 0.5);
+      ctx.fillText(String(cubes), x0 + w / 2 + 18 * scale, bodyY + h / 2 + 0.5);
     } else {
       ctx.fillStyle = "rgba(216,230,242,0.18)";
-      ctx.font = "14px ui-monospace, JetBrains Mono, Menlo, monospace";
+      ctx.font = `${14 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText("·", x0 + (3 * w) / 4, bodyY + h / 2 + 0.5);
@@ -695,7 +719,8 @@ function drawFloatingNumbers(
   stateByCountry: Map<string, CountryState>,
   playerColorById: Map<string, string>,
   floats: FloatingNumber[],
-  now: number
+  now: number,
+  scale: number
 ): void {
   if (floats.length === 0) return;
   const countryById = new Map<string, ConquestMap["countries"][number]>();
@@ -709,8 +734,8 @@ function drawFloatingNumbers(
     const country = countryById.get(f.countryId);
     if (!country) continue;
     const { cx, cy } = isoPos(iso, country.centroidX, country.centroidY, 0);
-    const baseY = cy - 20; // sit above the badge tag chip
-    const drift = -38 * t;
+    const baseY = cy - 20 * scale; // sit above the badge tag chip
+    const drift = -38 * t * scale;
     const alpha = t < 0.85 ? 1 : Math.max(0, 1 - (t - 0.85) / 0.15);
 
     let color = f.color;
@@ -722,18 +747,18 @@ function drawFloatingNumbers(
     }
 
     ctx.globalAlpha = alpha;
-    ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
+    ctx.font = `bold ${16 * scale}px ui-monospace, JetBrains Mono, Menlo, monospace`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
 
     // Halo so the number is legible over the wood / starfield / coastlines.
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 4 * scale;
     ctx.strokeStyle = "rgba(0,0,0,0.85)";
     ctx.strokeText(f.label, cx, baseY + drift);
 
     ctx.fillStyle = color;
     ctx.shadowColor = color;
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 8 * scale;
     ctx.fillText(f.label, cx, baseY + drift);
   }
   ctx.restore();

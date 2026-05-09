@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { useMutation } from "@apollo/client";
 import {
   AIRDROP_RESEARCHER_MUTATION,
@@ -31,9 +31,10 @@ interface Props {
   // setTargetMode/onResolveTarget.
   targetMode: TargetMode;
   setTargetMode: (m: TargetMode) => void;
-  // Imperative handle the parent fills in once mutations exist; ActionPanel
-  // calls back with the chosen target so the parent can dispatch.
-  onResolveTarget?: (targetCountryId: string, armies: number) => void;
+  // While target mode is active, ActionPanel writes a dispatcher into this
+  // ref so the parent (GameScreen) can fire the chosen attack/move when
+  // the user clicks a highlighted country directly on the map.
+  dispatchTargetRef?: MutableRefObject<((targetCountryId: string) => void) | null>;
 }
 
 function neighborIds(state: GameStateView, countryId: string): Set<string> {
@@ -93,6 +94,7 @@ export function ActionPanel({
   setSelectedCountryId,
   targetMode,
   setTargetMode,
+  dispatchTargetRef,
 }: Props): JSX.Element {
   const { game, countryStates } = state;
   const stateById = useMemo(
@@ -189,7 +191,8 @@ export function ActionPanel({
   // -------- Reinforcement phase --------
   if (game.turn.phase === "reinforcements") {
     const remaining = game.turn.reinforcementsToPlace;
-    const canPlace = !!selected && isMine(selected) && reinforceCount >= 1 && reinforceCount <= remaining;
+    const clampedReinforce = Math.max(1, Math.min(reinforceCount, Math.max(1, remaining)));
+    const canPlace = !!selected && isMine(selected) && clampedReinforce >= 1 && clampedReinforce <= remaining;
     const selectedCountry = selected ? countryById.get(selected.countryId) : null;
 
     // Reinforcement breakdown: base + per-country + continent bonuses + capital
@@ -270,17 +273,28 @@ export function ActionPanel({
             <span className="label" style={{ margin: 0 }}>target</span>
             <code style={{ color: "var(--neon)", fontSize: 10 }}>{selectedCountry?.tag ?? "—"}</code>
           </div>
-          <div className="row">
+          <div className="row" style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span className="label" style={{ margin: 0 }}>count</span>
+            <input
+              type="range"
+              min={1}
+              max={Math.max(1, remaining)}
+              value={clampedReinforce}
+              onChange={(e) => setReinforceCount(Number(e.target.value))}
+              style={{ flex: 1 }}
+              disabled={remaining < 1}
+            />
             <input
               type="number"
               min={1}
-              max={remaining}
+              max={Math.max(1, remaining)}
               className="input"
-              style={{ width: 70, padding: "4px 6px" }}
-              value={reinforceCount}
+              style={{ width: 60, padding: "4px 6px" }}
+              value={clampedReinforce}
               onChange={(e) => setReinforceCount(Number(e.target.value))}
             />
+          </div>
+          <div className="row" style={{ marginTop: 4 }}>
             <button
               type="button"
               className="btn btn-good"
@@ -291,13 +305,13 @@ export function ActionPanel({
                 const r = await placeReinforcements({
                   variables: {
                     gameId: game.gameId,
-                    placements: [{ countryId: selected.countryId, count: reinforceCount }],
+                    placements: [{ countryId: selected.countryId, count: clampedReinforce }],
                   },
                 });
                 handle(r.data?.placeReinforcements);
               }}
             >
-              Deploy ▸
+              Deploy {clampedReinforce} ▸
             </button>
           </div>
         </div>
@@ -323,6 +337,39 @@ export function ActionPanel({
 
     const variantClass = targetMode === "attack" ? "btn-bad" : "btn";
     const verb = targetMode === "attack" ? "Attack" : "Move";
+
+    const dispatchTarget = async (targetCountryId: string): Promise<void> => {
+      const armies = Math.min(armiesToCommit, maxArmies);
+      if (targetMode === "attack") {
+        const r = await attack({
+          variables: {
+            gameId: game.gameId,
+            fromCountryId: selected.countryId,
+            toCountryId: targetCountryId,
+            armies,
+          },
+        });
+        handle(r.data?.attack);
+      } else {
+        const r = await moveTroops({
+          variables: {
+            gameId: game.gameId,
+            fromCountryId: selected.countryId,
+            toCountryId: targetCountryId,
+            armies,
+          },
+        });
+        handle(r.data?.moveTroops);
+      }
+    };
+
+    if (dispatchTargetRef) {
+      dispatchTargetRef.current = (targetCountryId: string) => {
+        // Guard: only fire when the target is a valid candidate.
+        if (!candidates.some((c) => c.countryId === targetCountryId)) return;
+        void dispatchTarget(targetCountryId);
+      };
+    }
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -376,30 +423,7 @@ export function ActionPanel({
                   key={c.countryId}
                   type="button"
                   className={`target-row ${variantClass}`}
-                  onClick={async () => {
-                    const armies = Math.min(armiesToCommit, maxArmies);
-                    if (targetMode === "attack") {
-                      const r = await attack({
-                        variables: {
-                          gameId: game.gameId,
-                          fromCountryId: selected.countryId,
-                          toCountryId: c.countryId,
-                          armies,
-                        },
-                      });
-                      handle(r.data?.attack);
-                    } else {
-                      const r = await moveTroops({
-                        variables: {
-                          gameId: game.gameId,
-                          fromCountryId: selected.countryId,
-                          toCountryId: c.countryId,
-                          armies,
-                        },
-                      });
-                      handle(r.data?.moveTroops);
-                    }
-                  }}
+                  onClick={() => void dispatchTarget(c.countryId)}
                 >
                   <span className="tg" style={{ borderColor: owner?.color ?? "var(--ink-dim)" }}>
                     {c.tag}
