@@ -14,6 +14,7 @@ import {
 import { drawWoodFrame } from "@/lib/wood";
 import { drawAnimatedMotifs } from "@/lib/motifs";
 import { drawBiohazard, drawCapitalStar, drawResearcher, drawSoldier } from "@/lib/sprites";
+import type { FloatingNumber } from "@/lib/animations";
 import { ZOOM_MAX, ZOOM_MIN, clampView, type View } from "@/lib/view";
 
 interface Props {
@@ -28,6 +29,11 @@ interface Props {
   // an animated amber ring so the player can see at a glance where they
   // can click.
   highlightedIds?: Set<string> | null;
+  // Active floating "-N" / "+1" damage numbers spawned by the parent's
+  // animation queue. MapView only renders; the queue itself lives in the
+  // parent screen so it can also drive UI-side state (e.g. swapping the
+  // action panel for a disease panel during virus phase playback).
+  floats?: FloatingNumber[];
   onCountryClick?: (countryId: string) => void;
   onCountryHover?: (countryId: string | null) => void;
   onViewportSize?: (w: number, h: number) => void;
@@ -107,6 +113,7 @@ export function MapView({
   setView,
   selectedCountryId,
   highlightedIds,
+  floats,
   onCountryClick,
   onCountryHover,
   onViewportSize,
@@ -120,6 +127,12 @@ export function MapView({
     null
   );
   const hoverRef = useRef<string | null>(null);
+  // Keep float-list in a ref so the rAF loop reads the latest without
+  // re-subscribing every prop change.
+  const floatsRef = useRef<FloatingNumber[]>([]);
+  useEffect(() => {
+    floatsRef.current = floats ?? [];
+  }, [floats]);
 
   const tilesByXY = useMemo(() => {
     const grid: (Tile | null)[][] = [];
@@ -317,6 +330,17 @@ export function MapView({
 
       // Country badges + sprites.
       drawCountryBadges(ctx, map, iso, stateByCountry, playerColorById, now);
+
+      // Floating damage / cube numbers above country tags.
+      drawFloatingNumbers(
+        ctx,
+        iso,
+        map,
+        stateByCountry,
+        playerColorById,
+        floatsRef.current,
+        now
+      );
 
       raf = requestAnimationFrame(render);
     };
@@ -601,6 +625,61 @@ function drawCountryBadges(
       ctx.restore();
     }
   }
+}
+
+// Drift-up + fade-out floating numbers anchored above each country
+// centroid. `color === "owner"` resolves to the country's current owner
+// colour at render time (so disease casualty numbers flash in the player's
+// colour even though the parent doesn't know who owns what).
+function drawFloatingNumbers(
+  ctx: CanvasRenderingContext2D,
+  iso: IsoMath,
+  map: ConquestMap,
+  stateByCountry: Map<string, CountryState>,
+  playerColorById: Map<string, string>,
+  floats: FloatingNumber[],
+  now: number
+): void {
+  if (floats.length === 0) return;
+  const countryById = new Map<string, ConquestMap["countries"][number]>();
+  for (const c of map.countries) countryById.set(c.countryId, c);
+
+  ctx.save();
+  for (const f of floats) {
+    if (now < f.startAt) continue;
+    const t = (now - f.startAt) / f.duration;
+    if (t < 0 || t > 1) continue;
+    const country = countryById.get(f.countryId);
+    if (!country) continue;
+    const { cx, cy } = isoPos(iso, country.centroidX, country.centroidY, 0);
+    const baseY = cy - 20; // sit above the badge tag chip
+    const drift = -38 * t;
+    const alpha = t < 0.85 ? 1 : Math.max(0, 1 - (t - 0.85) / 0.15);
+
+    let color = f.color;
+    if (color === "owner") {
+      const state = stateByCountry.get(f.countryId);
+      color = state?.ownerPlayerId
+        ? playerColorById.get(state.ownerPlayerId) ?? "#aab8c4"
+        : "#aab8c4";
+    }
+
+    ctx.globalAlpha = alpha;
+    ctx.font = "bold 16px ui-monospace, JetBrains Mono, Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Halo so the number is legible over the wood / starfield / coastlines.
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText(f.label, cx, baseY + drift);
+
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fillText(f.label, cx, baseY + drift);
+  }
+  ctx.restore();
 }
 
 // Re-export iso constants so callers (screens) can size things consistently.

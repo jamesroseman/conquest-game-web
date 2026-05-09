@@ -5,6 +5,9 @@ import { Minimap } from "@/components/Minimap";
 import { PlayerList } from "@/components/PlayerList";
 import { ActionPanel, type TargetMode } from "@/components/ActionPanel/ActionPanel";
 import { EventLog } from "@/components/EventLog";
+import { DiseasePanel } from "@/components/DiseasePanel";
+import { buildAnimationDirective, type FloatingNumber } from "@/lib/animations";
+import type { GameEvent } from "@/api/types";
 import { AiThinkingIndicator } from "@/components/AiThinkingIndicator";
 import { useMyPlayer } from "@/hooks/useMyPlayer";
 import { useAuth } from "@/auth/useAuth";
@@ -21,9 +24,67 @@ export function GameScreen({ state }: Props): JSX.Element {
   const [view, setView] = useState<View>({ panX: 0, panY: 0, zoom: 1 });
   const [viewport, setViewport] = useState({ w: 1, h: 1 });
   const [targetMode, setTargetMode] = useState<TargetMode>(null);
+  const [floats, setFloats] = useState<FloatingNumber[]>([]);
+  const [diseasePlayback, setDiseasePlayback] = useState<{
+    until: number;
+    events: GameEvent[];
+  } | null>(null);
+  const lastSeqRef = useRef<number>(0);
   const myPlayer = useMyPlayer(state);
   const { game, players, countryStates, map } = state;
   const lastMapId = useRef<string | null>(null);
+
+  const playerColorById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of players) m.set(p.playerId, p.color);
+    return m;
+  }, [players]);
+
+  // Whenever new events come in, expand them into floating-number spawns
+  // and schedule them. Older spawns expire on a timer.
+  useEffect(() => {
+    if (!state.recentEvents || state.recentEvents.length === 0) return;
+    // First-paint: don't re-animate the entire history.
+    if (lastSeqRef.current === 0) {
+      const last = state.recentEvents[state.recentEvents.length - 1];
+      lastSeqRef.current = last?.sequence ?? 0;
+      return;
+    }
+    const now = performance.now();
+    const { directive, nextSeq } = buildAnimationDirective(
+      state.recentEvents,
+      lastSeqRef.current,
+      now,
+      {
+        playerColor: (id) => (id ? playerColorById.get(id) ?? "#aab8c4" : "#aab8c4"),
+      }
+    );
+    if (nextSeq <= lastSeqRef.current) return;
+    lastSeqRef.current = nextSeq;
+    if (directive.spawns.length > 0) {
+      setFloats((prev) => {
+        const live = prev.filter((f) => now - f.startAt < f.duration + 200);
+        return [...live, ...directive.spawns];
+      });
+    }
+    if (directive.diseasePlayback) {
+      setDiseasePlayback((prev) => {
+        const next = directive.diseasePlayback!;
+        if (!prev) return next;
+        return { until: Math.max(prev.until, next.until), events: [...prev.events, ...next.events] };
+      });
+    }
+  }, [state.recentEvents, playerColorById]);
+
+  // Sweep expired floats + clear the disease panel once playback ends.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const now = performance.now();
+      setFloats((prev) => prev.filter((f) => now - f.startAt < f.duration + 200));
+      setDiseasePlayback((prev) => (prev && now > prev.until + 800 ? null : prev));
+    }, 250);
+    return () => clearInterval(id);
+  }, []);
 
   // While in attack/move mode, the parent computes the highlight set and
   // re-routes map clicks. Highlighted = adjacent enemy (attack) or
@@ -76,6 +137,7 @@ export function GameScreen({ state }: Props): JSX.Element {
             setView={setView}
             selectedCountryId={selected}
             highlightedIds={highlightedIds}
+            floats={floats}
             onCountryClick={(id) => {
               // In target mode, leave selection alone — the ActionPanel's
               // target list owns the click resolution. Selecting a new
@@ -92,24 +154,28 @@ export function GameScreen({ state }: Props): JSX.Element {
         )}
       </div>
 
-      {/* Top-left: actions panel */}
+      {/* Top-left: actions / disease panel (swaps during virus playback) */}
       <div className="panel panel-fixed" style={{ top: 60, left: 14, width: 280 }}>
         <div className="hd">
-          actions
+          {diseasePlayback ? "disease" : "actions"}
           <span className="right">
             R{game.turn.roundNumber} · T{game.turn.turnNumber} · {game.turn.phase}
           </span>
         </div>
         <div className="bd">
           <AiThinkingIndicator activePlayer={activePlayer} className="mb-8" />
-          <ActionPanel
-            state={state}
-            myPlayer={myPlayer}
-            selectedCountryId={selected}
-            setSelectedCountryId={setSelected}
-            targetMode={targetMode}
-            setTargetMode={setTargetMode}
-          />
+          {diseasePlayback ? (
+            <DiseasePanel state={state} events={diseasePlayback.events} />
+          ) : (
+            <ActionPanel
+              state={state}
+              myPlayer={myPlayer}
+              selectedCountryId={selected}
+              setSelectedCountryId={setSelected}
+              targetMode={targetMode}
+              setTargetMode={setTargetMode}
+            />
+          )}
         </div>
       </div>
 
