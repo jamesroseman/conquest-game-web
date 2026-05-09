@@ -1,0 +1,177 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useMutation } from "@apollo/client";
+import {
+  ADD_AI_SEAT_MUTATION,
+  LEAVE_GAME_MUTATION,
+  REMOVE_SEAT_MUTATION,
+  START_GAME_MUTATION,
+} from "@/api/operations";
+import type {
+  GameMutationResult,
+  GameStateView,
+  StateMutationResult,
+} from "@/api/types";
+import { PlayerList } from "@/components/PlayerList";
+import { useAuth } from "@/auth/useAuth";
+
+interface Props {
+  state: GameStateView;
+}
+
+export function GameLobbyScreen({ state }: Props): JSX.Element {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const { game, players } = state;
+  const [error, setError] = useState<string | null>(null);
+
+  const isOwner = user?.userId === game.ownerUserId;
+  const myPlayer = players.find((p) => p.userId === user?.userId);
+
+  // Archetype is intentionally null so the server picks one at random — the
+  // bot's playstyle is meant to be a surprise, not a configurable knob.
+  const [addAiSeat, { loading: addingAi }] = useMutation<
+    { addAiSeat: GameMutationResult },
+    { gameId: string; archetype?: string | null; difficulty?: string | null }
+  >(ADD_AI_SEAT_MUTATION, { refetchQueries: ["GameQuery"] });
+
+  const [removeSeat] = useMutation<
+    { removeSeat: GameMutationResult },
+    { gameId: string; targetPlayerId: string }
+  >(REMOVE_SEAT_MUTATION, { refetchQueries: ["GameQuery"] });
+
+  const [leaveGame] = useMutation<
+    { leaveGame: GameMutationResult },
+    { gameId: string }
+  >(LEAVE_GAME_MUTATION);
+
+  const [startGame, { loading: starting }] = useMutation<
+    { startGame: StateMutationResult },
+    { gameId: string }
+  >(START_GAME_MUTATION, { refetchQueries: ["GameQuery"] });
+
+  function handle(result: GameMutationResult | StateMutationResult | undefined): boolean {
+    if (!result) return false;
+    if (result.__typename === "GameError") {
+      setError(result.message);
+      return false;
+    }
+    setError(null);
+    return true;
+  }
+
+  async function onAddAi(): Promise<void> {
+    const res = await addAiSeat({
+      variables: { gameId: game.gameId, archetype: null, difficulty: null },
+    });
+    handle(res.data?.addAiSeat);
+  }
+
+  async function onRemove(playerId: string): Promise<void> {
+    const res = await removeSeat({
+      variables: { gameId: game.gameId, targetPlayerId: playerId },
+    });
+    handle(res.data?.removeSeat);
+  }
+
+  async function onLeave(): Promise<void> {
+    const res = await leaveGame({ variables: { gameId: game.gameId } });
+    if (handle(res.data?.leaveGame)) navigate("/");
+  }
+
+  async function onStart(): Promise<void> {
+    const res = await startGame({ variables: { gameId: game.gameId } });
+    handle(res.data?.startGame);
+  }
+
+  return (
+    <div className="page-shell">
+      <div style={{ maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="panel">
+          <div className="hd">
+            {game.name}
+            <span className="right">
+              {game.playerCount}/{game.maxPlayers} seats · {game.isPublic ? "public" : "private"}
+              {game.inviteCode && (
+                <>
+                  {" · "}
+                  <span className="chip">{game.inviteCode}</span>
+                </>
+              )}
+            </span>
+          </div>
+          <div className="bd">
+            <div className="section-hd">seats</div>
+            <PlayerList players={players} ownerUserId={game.ownerUserId} myUserId={user?.userId ?? null} />
+            {isOwner && players.filter((p) => p.userId !== user?.userId).length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {players
+                  .filter((p) => p.userId !== user?.userId)
+                  .map((p) => (
+                    <button
+                      key={p.playerId}
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: "3px 8px", fontSize: 9 }}
+                      onClick={() => onRemove(p.playerId)}
+                    >
+                      Remove seat {p.seatOrder + 1}
+                    </button>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isOwner && (
+          <div className="panel">
+            <div className="hd">add ai seat</div>
+            <div className="bd" style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ flex: 1, fontSize: 11, color: "var(--ink-dim)", lineHeight: 1.5 }}>
+                The server picks a fresh playstyle for each bot — keeps every game
+                feeling different.
+              </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={onAddAi}
+                disabled={addingAi || game.playerCount >= game.maxPlayers}
+              >
+                + AI seat
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="alert">{error}</div>}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          {isOwner ? (
+            <button
+              type="button"
+              className="btn btn-good"
+              onClick={onStart}
+              disabled={starting || game.playerCount < game.maxPlayers}
+              title={
+                game.playerCount < game.maxPlayers
+                  ? `Lobby is ${game.playerCount}/${game.maxPlayers}. Add AI seats or wait for more players.`
+                  : undefined
+              }
+              style={{ flex: 1 }}
+            >
+              {starting
+                ? "Starting…"
+                : game.playerCount < game.maxPlayers
+                  ? `Start game (${game.playerCount}/${game.maxPlayers})`
+                  : "Start game"}
+            </button>
+          ) : myPlayer ? (
+            <button type="button" className="btn btn-bad" onClick={onLeave}>
+              Leave lobby
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}

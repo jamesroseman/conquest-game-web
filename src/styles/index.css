@@ -1,0 +1,839 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --neon: #5be3ff;
+  --neon-dim: #1f6e85;
+  --neon-soft: rgba(91, 227, 255, 0.22);
+  --neon-line: rgba(91, 227, 255, 0.14);
+  --ink: #d8e6f2;
+  --ink-dim: #6e8a9f;
+  --ink-faint: #4d5a68;
+  --bg: #03060c;
+  --bg-2: #060c1a;
+  --warn: #ffb454;
+  --bad: #e85b3a;
+  --good: #9be15d;
+  --mid: #e8c547;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: radial-gradient(ellipse at 50% 30%, #0a1426 0%, #03060c 70%);
+  color: var(--ink);
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "IBM Plex Mono", Menlo, monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+}
+
+/* Vignette + scanlines applied site-wide so every screen reads CRT. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 40%, rgba(0, 0, 0, 0.55) 100%);
+  z-index: 198;
+}
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.02) 0 1px,
+    transparent 1px 3px
+  );
+  z-index: 199;
+  mix-blend-mode: screen;
+}
+
+/* Starfield used by the map viewport AND the auth/lobby pages, so the same
+   night sky is visible behind everything before the player enters a game. */
+.starfield {
+  background-color: #02040a;
+  background-image:
+    radial-gradient(1.6px 1.6px at 47px 65px, #ffffff, transparent 60%),
+    radial-gradient(1.3px 1.3px at 183px 102px, #cfe8ff, transparent 60%),
+    radial-gradient(1.8px 1.8px at 312px 41px, #ffffff, transparent 60%),
+    radial-gradient(1.1px 1.1px at 90px 240px, #b9d4ff, transparent 60%),
+    radial-gradient(1.4px 1.4px at 270px 290px, #ffffff, transparent 60%),
+    radial-gradient(1.2px 1.2px at 380px 175px, #fff4d2, transparent 60%),
+    radial-gradient(1.0px 1.0px at 38px 380px, #ffffff, transparent 60%),
+    radial-gradient(1.5px 1.5px at 425px 405px, #cfe8ff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 12px 22px, #b9c8ff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 80px 78px, #ffffff, transparent 60%),
+    radial-gradient(0.8px 0.8px at 130px 30px, #ffffff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 195px 165px, #d9c8ff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 50px 130px, #ffffff, transparent 60%),
+    radial-gradient(0.8px 0.8px at 215px 60px, #ffffff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 165px 215px, #ffffff, transparent 60%),
+    radial-gradient(0.7px 0.7px at 110px 195px, #cfe8ff, transparent 60%),
+    radial-gradient(ellipse at 50% 35%, #060c1a 0%, #02040a 78%);
+  background-size:
+    480px 480px, 480px 480px, 480px 480px, 480px 480px,
+    480px 480px, 480px 480px, 480px 480px, 480px 480px,
+    240px 240px, 240px 240px, 240px 240px, 240px 240px,
+    240px 240px, 240px 240px, 240px 240px, 240px 240px,
+    auto;
+  background-repeat:
+    repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat,
+    repeat, repeat, repeat, repeat, repeat, repeat, repeat, repeat,
+    no-repeat;
+}
+
+/* ============================================================
+   Title strip — fixed at the top of every screen.
+   ============================================================ */
+.title-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.95), rgba(5, 9, 16, 0.85));
+  border-bottom: 1px solid var(--neon-soft);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+}
+.title-bar .brand {
+  color: var(--neon);
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  text-shadow: 0 0 6px rgba(91, 227, 255, 0.6);
+  text-decoration: none;
+}
+.title-bar .sub {
+  color: var(--ink-dim);
+}
+.title-bar .meta {
+  margin-left: auto;
+  color: var(--ink-dim);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.title-bar .meta b {
+  color: var(--ink);
+  font-weight: 500;
+  padding: 0 2px;
+}
+
+/* ============================================================
+   Panel — the universal HUD container used by lobby tiles,
+   inspector, player list, action panel, modals.
+   ============================================================ */
+.panel {
+  background: linear-gradient(180deg, rgba(8, 14, 24, 0.92), rgba(5, 9, 16, 0.92));
+  border: 1px solid var(--neon-soft);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 8px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(91, 227, 255, 0.08);
+  backdrop-filter: blur(6px);
+}
+.panel-fixed {
+  position: fixed;
+  z-index: 20;
+}
+.panel .hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--neon-line);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--neon);
+}
+.panel .hd::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--neon);
+  box-shadow: 0 0 8px var(--neon);
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+.panel .hd .right {
+  margin-left: auto;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+  text-transform: none;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.panel .bd {
+  padding: 8px 10px;
+}
+.panel .bd.dim {
+  color: var(--ink-dim);
+  font-style: italic;
+  padding: 16px 10px;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* ============================================================
+   Form rows — k/v pairs used in HUD inspector & lobby cards.
+   ============================================================ */
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 2px 0;
+}
+.kv .k { color: var(--ink-dim); }
+.kv .v { color: var(--ink); }
+.kv .v.neon { color: var(--neon); }
+.kv .v.warn { color: var(--warn); }
+.kv .v.bad { color: var(--bad); }
+.kv .v.good { color: var(--good); }
+.kv .v.mid { color: var(--mid); }
+
+/* ============================================================
+   Buttons — neon-cyan primary, ghost secondary.
+   ============================================================ */
+.btn {
+  appearance: none;
+  border: 1px solid rgba(91, 227, 255, 0.4);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.10), rgba(91, 227, 255, 0.02));
+  color: var(--neon);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(91, 227, 255, 0.18);
+  transition: background 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+.btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.20), rgba(91, 227, 255, 0.04));
+  box-shadow: 0 0 14px rgba(91, 227, 255, 0.35);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn-ghost {
+  border-color: rgba(216, 230, 242, 0.18);
+  background: transparent;
+  color: var(--ink);
+  box-shadow: none;
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: rgba(216, 230, 242, 0.32);
+  background: rgba(91, 227, 255, 0.06);
+  color: var(--ink);
+  box-shadow: none;
+}
+.btn-bad {
+  border-color: rgba(232, 91, 58, 0.42);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.14), rgba(232, 91, 58, 0.02));
+  color: #ffb19a;
+  box-shadow: 0 0 10px rgba(232, 91, 58, 0.18);
+}
+.btn-bad:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.24), rgba(232, 91, 58, 0.04));
+  box-shadow: 0 0 14px rgba(232, 91, 58, 0.35);
+}
+.btn-good {
+  border-color: rgba(155, 225, 93, 0.42);
+  background: linear-gradient(180deg, rgba(155, 225, 93, 0.14), rgba(155, 225, 93, 0.02));
+  color: #d6f5b0;
+  box-shadow: 0 0 10px rgba(155, 225, 93, 0.18);
+}
+.btn-good:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(155, 225, 93, 0.24), rgba(155, 225, 93, 0.04));
+  box-shadow: 0 0 14px rgba(155, 225, 93, 0.35);
+}
+
+/* ============================================================
+   Inputs — same chrome as the buttons; focus ring = neon.
+   ============================================================ */
+.input,
+.select {
+  appearance: none;
+  width: 100%;
+  background: rgba(2, 4, 10, 0.85);
+  border: 1px solid var(--neon-soft);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 8px 10px;
+  letter-spacing: 0.04em;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.select {
+  cursor: pointer;
+  background-image: linear-gradient(180deg, rgba(91, 227, 255, 0.08), transparent);
+}
+.input:focus,
+.select:focus {
+  border-color: rgba(91, 227, 255, 0.6);
+  box-shadow: 0 0 10px rgba(91, 227, 255, 0.25);
+}
+.input::placeholder { color: var(--ink-faint); }
+.label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  margin-bottom: 4px;
+}
+
+/* ============================================================
+   Layout helpers — page (centered card), screen (full-bleed game).
+   ============================================================ */
+.page {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 80px 24px 24px;
+  overflow: auto;
+  z-index: 1;
+}
+.page-shell {
+  position: fixed;
+  inset: 48px 0 0 0;
+  overflow: auto;
+  z-index: 1;
+  padding: 24px;
+}
+.page-game {
+  position: fixed;
+  inset: 48px 0 0 0;
+  z-index: 1;
+}
+
+/* ============================================================
+   Lobby list rows.
+   ============================================================ */
+.lobby-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--neon-line);
+}
+.lobby-row:first-child { border-top: 0; }
+.lobby-row .name { color: var(--ink); letter-spacing: 0.06em; }
+.lobby-row .meta { color: var(--ink-dim); font-size: 10px; letter-spacing: 0.06em; }
+
+/* Player list rows. */
+.prow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 11px;
+}
+.prow + .prow { border-top: 1px dashed rgba(91, 227, 255, 0.10); }
+.prow.active {
+  background: rgba(91, 227, 255, 0.08);
+  margin: 0 -10px;
+  padding-left: 10px;
+  padding-right: 10px;
+  border-left: 2px solid var(--neon);
+}
+.prow .who { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.prow .dot {
+  display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.4);
+}
+.prow .nm { color: var(--ink); white-space: nowrap; }
+.prow .ai {
+  color: var(--ink-dim); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.prow .me {
+  color: var(--neon); font-size: 9px; letter-spacing: 0.18em;
+  text-transform: uppercase; padding: 1px 5px;
+  border: 1px solid rgba(91,227,255,0.35);
+}
+.prow .cn {
+  color: var(--ink); font-variant-numeric: tabular-nums;
+  font-size: 11px; letter-spacing: 0.06em;
+}
+.prow .elim { color: var(--bad); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; }
+
+/* Inline meter bar (lobby card stats, country bars). */
+.meter {
+  position: relative;
+  flex: 1;
+  height: 5px;
+  background: rgba(91, 227, 255, 0.06);
+}
+.meter > i {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  background: var(--neon);
+  box-shadow: 0 0 6px var(--neon);
+  display: block;
+}
+
+/* Toast / inline error. */
+.alert {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  border: 1px dashed rgba(232, 91, 58, 0.6);
+  color: #ffb19a;
+  background: rgba(232, 91, 58, 0.08);
+}
+
+/* Code chip used for invite codes etc. */
+.chip {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  border: 1px solid var(--neon-soft);
+  background: rgba(91, 227, 255, 0.06);
+  color: var(--neon);
+  letter-spacing: 0.06em;
+}
+
+/* Mini-section divider used in panel bodies. */
+.section-hd {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+  padding: 6px 0 4px;
+  border-bottom: 1px dashed rgba(91, 227, 255, 0.10);
+  margin-bottom: 6px;
+}
+
+/* Map viewport shell — pixelated canvas + starfield bg. */
+.map-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border: 1px solid rgba(91, 227, 255, 0.10);
+  cursor: crosshair;
+  user-select: none;
+}
+.map-viewport.dragging { cursor: grabbing; }
+.map-canvas {
+  position: absolute;
+  top: 0; left: 0;
+  /* No pixelation — text on country badges should remain crisp at any zoom.
+     The tile art tolerates bilinear smoothing well enough that we don't
+     need to nearest-neighbour-scale the whole canvas. */
+  display: block;
+  transform-origin: top left;
+  will-change: transform;
+}
+
+/* Form grid for the create-game route. */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.form-grid .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+.form-grid .checkbox input { accent-color: var(--neon); }
+
+/* Tag for AI archetype/difficulty inline. */
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-left: 4px;
+  font-size: 9px;
+  border: 1px solid rgba(216, 230, 242, 0.18);
+  color: var(--ink-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+}
+
+/* Action button row, used in the game-side action panel. */
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.action-grid .btn {
+  font-size: 10px;
+  padding: 6px 8px;
+  letter-spacing: 0.14em;
+}
+
+/* Sub-form blocks inside the action panel. */
+.subform {
+  border: 1px dashed rgba(91, 227, 255, 0.18);
+  padding: 8px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.subform .row { display: flex; align-items: center; gap: 6px; }
+.subform .row .label { margin: 0; min-width: 60px; }
+
+/* Reusable utility for stacking small breaks of vertical space — applied
+   to AI-thinking before the action panel body, etc. */
+.mb-8 { margin-bottom: 8px; }
+
+/* ============================================================
+   Minimap.
+   ============================================================ */
+.minimap-panel {
+  width: 232px;
+  padding: 6px;
+}
+.minimap-panel .hd {
+  border-bottom: 0;
+  padding: 4px 4px 6px;
+}
+.minimap-panel .right .mzb {
+  appearance: none;
+  border: 1px solid rgba(91, 227, 255, 0.30);
+  background: rgba(91, 227, 255, 0.06);
+  color: var(--neon);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  width: 20px;
+  height: 18px;
+  cursor: pointer;
+  padding: 0;
+}
+.minimap-panel .right .mzb:hover {
+  background: rgba(91, 227, 255, 0.18);
+}
+.minimap-panel .right .mzl {
+  color: var(--ink-dim);
+  font-size: 9px;
+  min-width: 32px;
+  text-align: center;
+  letter-spacing: 0.06em;
+}
+.minimap-panel .mini-canvas {
+  width: 220px;
+  height: 220px;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #02040a;
+  border: 1px solid var(--neon-line);
+  display: block;
+}
+
+/* ============================================================
+   AI thinking indicator — pulses while a bot's turn is in flight.
+   ============================================================ */
+.ai-thinking {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px dashed rgba(91, 227, 255, 0.35);
+  background: rgba(91, 227, 255, 0.06);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.ai-thinking .ai-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.ai-thinking .ai-label {
+  color: var(--neon);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-thinking .ai-meta {
+  color: var(--ink-dim);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+.ai-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 10px;
+}
+.ai-bars > span {
+  display: inline-block;
+  width: 3px;
+  background: var(--neon);
+  box-shadow: 0 0 4px var(--neon);
+  animation: ai-bar-wave 0.9s ease-in-out infinite;
+}
+.ai-bars > span:nth-child(1) { animation-delay: 0s;   height: 4px;  }
+.ai-bars > span:nth-child(2) { animation-delay: 0.15s; height: 7px;  }
+.ai-bars > span:nth-child(3) { animation-delay: 0.30s; height: 10px; }
+@keyframes ai-bar-wave {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
+  50%      { transform: scaleY(1.0); opacity: 1;    }
+}
+
+/* ============================================================
+   Action tiles — pixel-art glyph + label + cost. Used by the
+   in-game action panel.
+   ============================================================ */
+.action-tile {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid rgba(91, 227, 255, 0.22);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.06), rgba(91, 227, 255, 0.0));
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.05s ease;
+}
+.action-tile:hover:not(.is-disabled) {
+  border-color: rgba(91, 227, 255, 0.55);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.18), rgba(91, 227, 255, 0.04));
+}
+.action-tile:active:not(.is-disabled) {
+  transform: translateY(1px);
+}
+.action-tile .ag {
+  font-size: 18px;
+  line-height: 1;
+  width: 22px;
+  text-align: center;
+  color: var(--neon);
+  text-shadow: 0 0 6px rgba(91, 227, 255, 0.7);
+}
+.action-tile .al {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.action-tile .al-name {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.action-tile .al-cost {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--ink-dim);
+}
+.action-tile.action-tile-good .ag {
+  color: var(--good);
+  text-shadow: 0 0 6px rgba(155, 225, 93, 0.7);
+}
+.action-tile.action-tile-good:hover:not(.is-disabled) {
+  border-color: rgba(155, 225, 93, 0.55);
+  background: linear-gradient(180deg, rgba(155, 225, 93, 0.16), rgba(155, 225, 93, 0.02));
+}
+.action-tile.action-tile-bad .ag {
+  color: var(--bad);
+  text-shadow: 0 0 6px rgba(232, 91, 58, 0.7);
+}
+.action-tile.action-tile-bad:hover:not(.is-disabled) {
+  border-color: rgba(232, 91, 58, 0.55);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.16), rgba(232, 91, 58, 0.02));
+}
+.action-tile.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.action-tile.is-disabled .ag {
+  color: var(--ink-faint);
+  text-shadow: none;
+}
+.action-tile.is-active {
+  border-color: rgba(255, 180, 84, 0.6);
+  box-shadow: 0 0 10px rgba(255, 180, 84, 0.35);
+}
+
+/* Target row used in attack/move click-to-target mode. Looks similar to
+   action-tile but with a country-tag chip on the left and a multi-line
+   label/meta on the right. */
+.target-row {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--neon-soft);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.06), rgba(91, 227, 255, 0.0));
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.05s ease;
+}
+.target-row:hover {
+  border-color: rgba(91, 227, 255, 0.55);
+  background: linear-gradient(180deg, rgba(91, 227, 255, 0.18), rgba(91, 227, 255, 0.04));
+}
+.target-row.btn-bad {
+  border-color: rgba(232, 91, 58, 0.42);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.10), rgba(232, 91, 58, 0));
+}
+.target-row.btn-bad:hover {
+  border-color: rgba(232, 91, 58, 0.7);
+  background: linear-gradient(180deg, rgba(232, 91, 58, 0.22), rgba(232, 91, 58, 0.04));
+}
+.target-row .al-name {
+  font-size: 11px;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+.target-row .al-cost {
+  font-size: 9px;
+  color: var(--ink-dim);
+  letter-spacing: 0.06em;
+}
+
+/* ============================================================
+   Event log — replaces the inspector on the right rail.
+   ============================================================ */
+.evlog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.evrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px dashed rgba(91, 227, 255, 0.10);
+  border-left: 3px solid transparent;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.evrow:last-child {
+  border-bottom: 0;
+}
+.evrow-system {
+  border-left-color: rgba(91, 227, 255, 0.35);
+  background: rgba(91, 227, 255, 0.04);
+}
+.evrow-bad {
+  border-left-color: rgba(232, 91, 58, 0.55);
+}
+.evrow-good {
+  border-left-color: rgba(155, 225, 93, 0.55);
+}
+.evrow-neutral {
+  border-left-color: rgba(216, 230, 242, 0.18);
+}
+.evrow .ev-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+  text-transform: uppercase;
+}
+.evrow .ev-seq {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint);
+}
+.evrow .ev-actor {
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+.evrow .ev-text {
+  color: var(--ink);
+}
+
+/* Disease panel rows (replaces the action panel during virus playback). */
+.dlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.drow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.drow .dnote {
+  flex: 1;
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+.drow .dlost {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--bad);
+}
+.drow .dgain {
+  font-weight: 700;
+  color: var(--good);
+}
+
+/* Country tag chip — short identifier ("A1", "B3"). Used inline in the
+   action panel and the inspector. */
+.tg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  background: #0d0f0a;
+  border: 1px solid var(--neon-soft);
+  border-radius: 2px;
+}
